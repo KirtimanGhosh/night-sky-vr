@@ -335,6 +335,17 @@ $('speedSel').onchange=e=>{setSpeed(+e.target.value);};
 $('pauseBtn').onclick=()=>{if(paused){paused=false;realAnchor=performance.now();}else{simAnchor=simNow();paused=true;}syncTimeUI();};
 $('grsIn').value=S.grs;$('grsIn').onchange=e=>{S.grs=e.target.value.trim();save();timeJumped=true;};
 $('ipd').value=S.ipd;$('ipdOut').textContent=S.ipd+' mm';$('ipd').oninput=e=>{S.ipd=+e.target.value;$('ipdOut').textContent=S.ipd+' mm';save();};
+// ---- download everything for offline use ----
+const CORE_FILES=['index.html','app.js','i18n.js','lib/three.min.js','lib/astronomy.browser.min.js','data/skydata.js','data/comets.js','tex/milkyway.jpg','tex/moon.jpg','tex/mercury.png','tex/venus.png','tex/mars.png','tex/jupiter.png','tex/saturn.png','tex/uranus.png','tex/neptune.png','tex/io.png','tex/europa.png','tex/ganymede.png','tex/callisto.png','tex/saturn_rings_radial.png'];
+let dlRun=false;const dlBtn=$('dlBtn'),dlState=$('dlState');
+async function dlCount(){if(!window.caches)return;try{const c=await caches.open('nsvr-img');const k=await c.keys();const n=new Set(k.map(r=>r.url));const have=NEB.filter(x=>n.has(NEB_BASE+x.url)).length;dlState.textContent=have+' / '+NEB.length;if(have===NEB.length)dlState.textContent=L().ui.dlDone;return have;}catch(_){}}
+dlBtn.onclick=async()=>{if(!window.caches){say('Offline storage is not available here.');return;}
+  if(dlRun){dlRun=false;return;}dlRun=true;dlBtn.textContent=L().ui.dlStop;try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist();}catch(_){}
+  try{const core=await caches.open('nsvr-v5');await Promise.all(CORE_FILES.map(u=>core.match(u).then(m=>m||core.add(u)).catch(()=>null)));}catch(_){}
+  const c=await caches.open('nsvr-img');const have=new Set((await c.keys()).map(r=>r.url));const todo=NEB.map(x=>NEB_BASE+x.url).filter(u=>!have.has(u));let done=NEB.length-todo.length,fail=0,i=0;
+  async function worker(){while(dlRun&&i<todo.length){const u=todo[i++];try{const r=await fetch(u,{mode:'cors'});if(r.ok){await c.put(u,r);done++;}else fail++;}catch(_){fail++;}dlState.textContent=done+' / '+NEB.length;}}
+  await Promise.all([worker(),worker(),worker(),worker()]);dlRun=false;dlBtn.textContent=L().ui.dlAll;dlState.textContent=fail?L().ui.dlFail:(done===NEB.length?L().ui.dlDone:done+' / '+NEB.length);};
+$('setBtn').addEventListener('click',dlCount);
 $('dsoChk').checked=S.dso;$('dsoChk').onchange=e=>{S.dso=e.target.checked;save();nebGroup.visible=S.dso;};
 function geoAuto(){try{navigator.permissions&&navigator.permissions.query({name:'geolocation'}).then(r=>{if(r.state==='granted')$('gpsBtn').click();}).catch(()=>{});}catch(_){}}
 

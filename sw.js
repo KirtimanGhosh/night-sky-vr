@@ -1,4 +1,4 @@
-const V='nsvr-v4';
+const V='nsvr-v5';
 const CORE=['./','index.html','app.js','i18n.js','manifest.webmanifest','icon-192.png','icon-512.png','lib/three.min.js','lib/astronomy.browser.min.js','data/skydata.js','data/comets.js',
  'tex/milkyway.jpg','tex/moon.jpg','tex/mercury.png','tex/venus.png','tex/mars.png','tex/jupiter.png','tex/saturn.png','tex/uranus.png','tex/neptune.png','tex/io.png','tex/europa.png','tex/ganymede.png','tex/callisto.png','tex/saturn_rings_radial.png'];
 // cache each file on its own, so one missing file never stops installation

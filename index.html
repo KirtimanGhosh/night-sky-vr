@@ -64,8 +64,9 @@ body.stereo #divider{display:block}
       <button id="voiceBtn" aria-pressed="true">Narration</button>
       <button id="motionBtn" aria-pressed="false">Look around</button>
       <button id="alignBtn">Face north + align</button>
-      <button id="zinBtn" aria-label="Zoom in">Zoom +</button>
-      <button id="zoutBtn" aria-label="Zoom out">Zoom −</button>
+      <button id="zinBtn" aria-label="Move closer">Closer</button>
+      <button id="zoutBtn" aria-label="Move back">Back</button>
+      <button id="tiltBtn" aria-pressed="true">Head-tilt zoom</button>
       <button id="linesBtn" aria-pressed="true">Lines</button>
       <button id="namesBtn" aria-pressed="true">Names</button>
       <button id="groundBtn" aria-pressed="true">Ground</button>
@@ -74,7 +75,7 @@ body.stereo #divider{display:block}
       <button id="fsBtn">Full screen</button>
       <button id="vrBtn" class="vr">Headset view</button>
     </div>
-    <div class="say">Say <b>zoom in</b> · <b>zoom out</b> · <b>reset</b> · <b>tell me more</b> · <b>stop</b></div>
+    <div class="say">Say <b>closer</b> · <b>back</b> · <b>home</b> · <b>tell me</b> · <b>stop</b> — or tilt your head <b>right</b> to go closer, <b>left</b> to go back. <span>Mic: <b id="micState">Off</b></span></div>
   </div>
 </div>
 <button id="exitVR" hidden>Exit headset view</button>
@@ -88,6 +89,7 @@ body.stereo #divider{display:block}
 <script>
 (function(){
 const LAT=20.30, LON=85.82, R=100, D2R=Math.PI/180, SD=window.SKYDATA;
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;let holdReport=false;
 
 function eq(raH,dec,r){const a=raH*15*D2R,d=dec*D2R;return new THREE.Vector3(r*Math.cos(d)*Math.cos(a),r*Math.cos(d)*Math.sin(a),r*Math.sin(d));}
 function rnd(seed){return()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646}}
@@ -377,12 +379,8 @@ document.getElementById('photoIn').onchange=e=>{const f=e.target.files[0];if(!f)
 document.getElementById('skyBtn').onclick=()=>{photo.visible=false;sky.visible=true;groundGroup.visible=document.getElementById('groundBtn').getAttribute('aria-pressed')==='true';document.getElementById('skyBtn').hidden=true;};
 
 // ---------- zoom ----------
-const FOV0=70,FOVMIN=0.05;let fovGoal=FOV0;
-function setFov(f){fovGoal=Math.max(FOVMIN,Math.min(95,f));}
-function zoomIn(){setFov(fovGoal/3);pendingReport=true;}
-function zoomOut(){setFov(Math.min(FOV0,fovGoal*3));pendingReport=fovGoal<FOV0-1;}
-function zoomReset(){setFov(FOV0);pendingReport=false;}
-document.getElementById('zinBtn').onclick=zoomIn;document.getElementById('zoutBtn').onclick=zoomOut;
+// zoom code moved below (needs narration helpers)
+
 
 // ---------- look: drag, pinch, wheel ----------
 let az=90*D2R,pitch=22*D2R,yawOff=0;
@@ -532,7 +530,8 @@ function narrate(dt){
   if(zoomed){if(!settled)return;const c=centreEq();
     const moved=Math.acos(Math.min(1,c.dot(lastRep)))/D2R>camera.fov*0.3;
     if(moved){repT+=dt;}else repT=0;
-    if(pendingReport||(moved&&repT>2)){pendingReport=false;repT=0;lastRep.copy(c);const r=fieldReport();speak(r.t);show(r.t,r.name);lastSaid='__zoom';}
+    if(holdReport&&!(synth&&synth.speaking))holdReport=false;
+    if((pendingReport&&!holdReport)||(moved&&repT>2&&!pendingReport)){pendingReport=false;repT=0;lastRep.copy(c);const r=fieldReport();speak(r.t);show(r.t,r.name);lastSaid='__zoom';}
     return;}
   const t=wideTarget(),k=t?t.k:null;
   if(k!==cand){cand=k;candT=0;}else candT+=dt;
@@ -542,24 +541,83 @@ function tellMore(){if(fovGoal<FOV0-1){const r=fieldReport();speak(r.t);show(r.t
   const t=wideTarget();if(t){const text=t.text();speak(text);show(text,t.name||(CONS[t.k]?CONS[t.k][0]:t.k));}
   else{const r=fieldReport();speak(r.t);show(r.t,r.name);}}
 
-// ---------- voice commands ----------
+// ---------- voice commands (simple words, forgiving matching, visible feedback) ----------
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-const vcBtn=document.getElementById('voiceCmdBtn');let rec=null,listening=false;
-function heard(text){const t=text.toLowerCase().trim();const busy=(synth&&synth.speaking)||performance.now()<speakingUntil;
-  if(/\b(stop|quiet|silence|shut up)\b/.test(t)){synth&&synth.cancel();flash('Stopped');return;}
-  if(/\bzoom(ing)? in\b|\bcloser\b|\bmagnify\b|\benlarge\b/.test(t)){synth&&synth.cancel();zoomIn();flash('Zoom in');return;}
-  if(/\bzoom(ing)? out\b|\bwider\b|\bfurther\b/.test(t)){synth&&synth.cancel();zoomOut();flash('Zoom out');return;}
-  if(/\breset\b|\bnormal( view)?\b|\bgo back\b|\bhome\b|\bfull view\b/.test(t)){synth&&synth.cancel();zoomReset();flash('Normal view');return;}
-  if(busy)return;
-  if(/\btell me more\b|\bmore\b|\bdetails?\b|\bdescribe\b|\bwhat is (this|that)\b|\bwhat am i looking at\b/.test(t)){tellMore();return;}}
-function flash(t){say('Heard: '+t,1600);if(stereo){setCapSprite(t);}}
-function startRec(){if(!SR){say('Voice commands need Chrome on Android, or Safari on iPhone with Siri turned on.',7000);return;}
-  rec=new SR();rec.lang='en-IN';rec.continuous=true;rec.interimResults=false;rec.maxAlternatives=3;
-  rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++)if(e.results[i].isFinal){const alts=[...e.results[i]].map(a=>a.transcript).join(' | ');heard(alts);}};
-  rec.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){listening=false;vcBtn.setAttribute('aria-pressed','false');say('Microphone access was refused, so voice commands are off. Allow the microphone for this site and try again.',7000);}};
-  rec.onend=()=>{if(listening){try{rec.start();}catch(e){setTimeout(()=>{try{listening&&rec.start();}catch(_){}},400);}}};
-  try{rec.start();listening=true;vcBtn.setAttribute('aria-pressed','true');say('Listening. Say "zoom in", "zoom out", "reset", "tell me more" or "stop".',4000);}catch(e){say('Voice commands could not start here.');}}
-vcBtn.onclick=()=>{if(listening){listening=false;try{rec.stop();}catch(e){}vcBtn.setAttribute('aria-pressed','false');}else startRec();};
+const vcBtn=document.getElementById('voiceCmdBtn'),micState=document.getElementById('micState');let rec=null,listening=false,lastCmdAt=0,lastCmd='';
+const CMDS=[
+ {k:'stop', re:/\b(stop|quiet|silence|enough|shut up|chup)\b/, safe:true, run:()=>{synth&&synth.cancel();}, label:'Stop'},
+ {k:'in',   re:/\b(closer|close|forward|nearer|zoom ?in|zoomin|zoom|magnify|go in|come closer|move closer|approach)\b|^\s*(in|go)\s*$/, safe:true, run:()=>zoomIn(), label:'Closer'},
+ {k:'out',  re:/\b(back|backward|backwards|farther|further|away|zoom ?out|zoomout|move back|go back|retreat)\b|^\s*out\s*$/, safe:true, run:()=>zoomOut(), label:'Back'},
+ {k:'home', re:/\b(home|reset|normal|full sky|start again)\b/, safe:true, run:()=>zoomReset(), label:'Home'},
+ {k:'tell', re:/\b(tell|describe|what|info|information|details|more|explain)\b/, safe:false, run:()=>tellMore(), label:'Tell me'}];
+function norm(s){return s.toLowerCase().replace(/[^a-z\s]/g,' ').replace(/\s+/g,' ').trim();}
+function heard(text,final){const alts=text.split('|').map(norm).filter(Boolean);if(!alts.length)return false;
+  const busy=(synth&&synth.speaking)||performance.now()<speakingUntil;
+  for(const c of CMDS){if(busy&&!c.safe)continue;if(alts.some(a=>c.re.test(a))){
+      const now=performance.now();if(c.k===lastCmd&&now-lastCmdAt<1800)return true;lastCmd=c.k;lastCmdAt=now;
+      if(c.k!=='stop'&&c.k!=='tell')synth&&synth.cancel();c.run();flash(c.label);return true;}}
+  if(final)setMic('Heard "'+alts[0]+'" (not a command)');return false;}
+function flash(t){say('✓ '+t,1400);if(stereo){setCapSprite(t);}}
+function setMic(t){micState.textContent=t;}
+let restartT=null;
+function startRec(){if(!SR){say('This browser has no speech recognition. Use Chrome on Android, or Safari on iPhone with Siri on. Head tilt still works.',8000);return;}
+  try{if(rec){rec.onend=null;rec.abort();}}catch(_){}
+  rec=new SR();rec.lang='en-IN';rec.continuous=false;rec.interimResults=true;rec.maxAlternatives=4;
+  rec.onstart=()=>setMic('Listening…');
+  rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];const alts=[...r].map(a=>a.transcript).join(' | ');
+      if(heard(alts,r.isFinal)){try{rec.abort();}catch(_){}}}};
+  rec.onerror=e=>{const msg={'not-allowed':'Microphone blocked. Allow the microphone for this site in Chrome settings, then tap Voice commands again.',
+     'service-not-allowed':'Speech service blocked. On iPhone turn on Siri; on Android update the Google app.','audio-capture':'No microphone found.',
+     'network':'Speech recognition needs an internet connection.'}[e.error];
+    if(msg){listening=false;vcBtn.setAttribute('aria-pressed','false');setMic('Off');say(msg,8000);}};
+  rec.onend=()=>{if(!listening){setMic('Off');return;}setMic('Listening…');clearTimeout(restartT);restartT=setTimeout(()=>{try{listening&&rec.start();}catch(_){}},250);};
+  try{rec.start();listening=true;vcBtn.setAttribute('aria-pressed','true');say('Say "closer", "back", "home", "tell me" or "stop".',4500);}catch(e){say('Voice commands could not start here.');}}
+vcBtn.onclick=()=>{if(listening){listening=false;try{rec.abort();}catch(e){}vcBtn.setAttribute('aria-pressed','false');setMic('Off');}else startRec();};
+
+// ---------- head-tilt zoom (works with no voice) ----------
+const tiltBtn=document.getElementById('tiltBtn');let tiltOn=true,tiltArmed=true,tiltT=0;
+tiltBtn.onclick=()=>{tiltOn=!tiltOn;tiltBtn.setAttribute('aria-pressed',tiltOn);};
+const rvec=new THREE.Vector3();
+function headTilt(dt){if(!tiltOn||!motionOn||!devQ)return;rvec.set(1,0,0).applyQuaternion(camera.quaternion);const roll=rvec.y;
+  if(!tiltArmed){if(Math.abs(roll)<0.2)tiltArmed=true;return;}
+  if(roll<-0.42||roll>0.42){tiltT+=dt;if(tiltT>0.6){tiltArmed=false;tiltT=0;if(roll<0){zoomIn();flash('Tilt right: closer');}else{zoomOut();flash('Tilt left: back');}}}else tiltT=0;}
+
+const FOV0=70,FOVMIN=0.05;let fovGoal=FOV0,tween=null,warp=0;
+function setFov(f){tween=null;fovGoal=Math.max(FOVMIN,Math.min(95,f));}
+function startTween(to,dur){tween={from:camera.fov,to,t:0,dur};fovGoal=to;}
+function bigWords(n){return n>=1e9?(+(n/1e9).toPrecision(2))+' billion':n>=1e6?(+(n/1e6).toPrecision(2))+' million':spoken(sig2(n));}
+function moveTarget(){const c=centreEq(),rad=camera.fov/2*D2R,lim=starMat.uniforms.uLim.value;
+  if(typeof solarInView==='function'){const so=solarInView(c,rad*0.6).filter(o=>o.kind==='body'||o.kind==='gal'||o.kind==='comet');
+    if(so.length){const o=so[0];if(o.kind==='body')return{name:o.p.n==='Moon'?'the Moon':o.p.n==='Sun'?'the Sun':o.p.n,km:o.p.dist*AU_KM};
+      if(o.kind==='gal')return{name:o.g.n,km:PL[3].dist*AU_KM};return{name:'comet '+o.cm.n.replace(/ \(.*\)/,''),km:o.cm.delta*AU_KM};}}
+  let best=null,ba=1e9;DSO.forEach(o=>{const a=Math.acos(Math.min(1,c.dot(o.v)));const d=DSODIST[o.id];if(!d||a>Math.max(rad*0.5,o.dim/120*D2R))return;
+    const m=d.match(/([\d.,]+)( million)?/);if(!m)return;const ly=parseFloat(m[1].replace(/,/g,''))*(m[2]?1e6:1);if(a<ba){ba=a;best={name:o.alt?'the '+o.alt:o.id,ly};}});
+  if(best)return best;
+  for(let i=0;i<INFO.length;i++){if(sMag[i]>lim)break;const d=c.x*sV[i*3]+c.y*sV[i*3+1]+c.z*sV[i*3+2];if(d<Math.cos(rad*0.5))continue;if(INFO[i][5]>0)return{name:starName(i).replace(/,$/,''),ly:INFO[i][5]};}
+  return null;}
+function speedPhrase(T,from,to,dur){const frac=Math.abs(from-to)/FOV0;
+  if(T.km){const v=T.km*frac/dur,c=v/299792.458;return{c,txt:c>=1?`about ${bigWords(c)} times the speed of light`:`about ${bigWords(v)} kilometres per second`+(c>=0.05?`, ${Math.round(c*100)} percent of the speed of light`:'')};}
+  const c=T.ly*frac*31557600/dur;return{c,txt:`about ${bigWords(c)} times the speed of light`};}
+function announceMove(to,dur){const from=fovGoal,inward=to<from,T=moveTarget();let txt,hud;
+  if(T){const s=speedPhrase(T,from,to,dur);txt=`Moving ${inward?'toward':'away from'} ${T.name} at ${s.txt}.`;hud=(inward?'→ ':'← ')+T.name.replace(/^the /,'')+' · '+(s.c>=1?bigWords(s.c).replace(' million',' M').replace(' billion',' B')+' c':Math.round(s.c*100)+'% c');}
+  else{txt=inward?'Moving closer to this patch of sky.':'Moving back.';hud=inward?'→ closer':'← back';}
+  speak(txt);show(txt,hud);holdReport=true;}
+function zoomIn(){const to=Math.max(FOVMIN,fovGoal/3);if(to>=fovGoal-1e-6){say('This is the closest view.',2000);return;}announceMove(to,2.6);startTween(to,2.6);pendingReport=true;}
+function zoomOut(){const to=Math.min(FOV0,fovGoal*3);if(to<=fovGoal+1e-6){say('This is already the full sky.',2000);return;}announceMove(to,2.6);startTween(to,2.6);pendingReport=to<FOV0-1;}
+function zoomReset(){if(fovGoal>=FOV0-1e-3)return;speak('Returning to the full sky.');show('Returning to the full sky.','← full sky');startTween(FOV0,2.2);pendingReport=false;}
+document.getElementById('zinBtn').onclick=zoomIn;document.getElementById('zoutBtn').onclick=zoomOut;
+// warp streaks (camera space) for the feeling of travel
+const NW=260,wPos=new Float32Array(NW*6),wR=new Float32Array(NW),wA=new Float32Array(NW);
+for(let i=0;i<NW;i++){wA[i]=Math.random()*Math.PI*2;wR[i]=0.03+Math.random()*1.4;}
+const wGeo=new THREE.BufferGeometry();wGeo.setAttribute('position',new THREE.BufferAttribute(wPos,3));
+const wMat=new THREE.LineBasicMaterial({color:0xcfe0ff,transparent:true,opacity:0,depthTest:false,depthWrite:false,blending:THREE.AdditiveBlending});
+const warpLines=new THREE.LineSegments(wGeo,wMat);warpLines.frustumCulled=false;warpLines.renderOrder=9;warpLines.visible=false;camera.add(warpLines);
+function updateWarp(dt){const a=Math.abs(warp);warpLines.visible=a>0.02&&!reduceMotion;if(!warpLines.visible)return;wMat.opacity=Math.min(0.6,a*0.7);
+  const sc=Math.tan(camera.fov/2*D2R),sp=Math.sign(warp)*(0.6+2.4*a);
+  for(let i=0;i<NW;i++){wR[i]*=Math.exp(sp*dt);if(wR[i]>1.6)wR[i]=0.03+Math.random()*0.15;if(wR[i]<0.03)wR[i]=1.2+Math.random()*0.4;
+    const r=wR[i]*sc*1.2,x=Math.cos(wA[i]),y=Math.sin(wA[i]),l=1+0.06+0.22*a;wPos.set([x*r,y*r,-1,x*r*l,y*r*l,-1],i*6);}
+  wGeo.attributes.position.needsUpdate=true;}
+
 
 // ---------- zoom-dependent labels ----------
 let zoomLabelAt=null;
@@ -578,7 +636,10 @@ const qYaw=new THREE.Quaternion(),Y=new THREE.Vector3(0,1,0),clock=new THREE.Clo
 renderer.setAnimationLoop(()=>{
   const dt=Math.min(clock.getDelta(),0.1);starMat.uniforms.uT.value=clock.elapsedTime;
   // zoom animation
-  if(Math.abs(camera.fov-fovGoal)>0.01){camera.fov+=(fovGoal-camera.fov)*Math.min(1,dt*4);camera.updateProjectionMatrix();}
+  if(tween){tween.t+=dt;const u=Math.min(1,tween.t/tween.dur),e=u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;camera.fov=tween.from*Math.pow(tween.to/tween.from,e);camera.updateProjectionMatrix();
+    warp=(tween.to<tween.from?1:-1)*Math.sin(Math.PI*u);if(u>=1){tween=null;warp=0;}}
+  else if(Math.abs(camera.fov-fovGoal)>0.01){camera.fov+=(fovGoal-camera.fov)*Math.min(1,dt*4);camera.updateProjectionMatrix();}
+  updateWarp(dt);headTilt(dt);
   const f=camera.fov;starMat.uniforms.uLim.value=6+2*Math.max(0,Math.min(1,(FOV0-f)/(FOV0-10)));
   mwMat.uniforms.uK.value=Math.max(0.35,Math.min(1,f/40));solarFrame(f);
   if(clock.elapsedTime-lastSolar>30){lastSolar=clock.elapsedTime;updateSolar();}
@@ -599,7 +660,7 @@ renderer.setAnimationLoop(()=>{
     renderer.setScissor(w/2,0,w/2,h);renderer.setViewport(w/2,0,w/2,h);renderer.render(scene,camera);renderer.setScissorTest(false);}
   else{renderer.setViewport(0,0,w,h);renderer.render(scene,camera);}
 });
-window.__sky={zoomIn,zoomOut,zoomReset,fieldReport,tellMore,aim:(raH,dec)=>{const w=eq(raH,dec,1).applyMatrix4(sky.matrix).normalize();az=Math.atan2(w.x,-w.z);pitch=Math.asin(w.y);}};
+window.__sky={heard:(t)=>heard(t,true),zoomIn,zoomOut,zoomReset,fieldReport,tellMore,aim:(raH,dec)=>{const w=eq(raH,dec,1).applyMatrix4(sky.matrix).normalize();az=Math.atan2(w.x,-w.z);pitch=Math.asin(w.y);}};
 })();
 </script>
 </body></html>

@@ -10,11 +10,11 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=Chivo+Mono:wght@400&family=Noto+Sans+Bengali:wght@400;500&family=Noto+Sans+Devanagari:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=Chivo+Mono:wght@400&family=Noto+Sans+Bengali:wght@400;500&family=Noto+Sans+Devanagari:wght@400;500&family=Noto+Sans+Oriya:wght@400;500&display=swap">
 <style>
 /* Full-bleed sky; dim "red flashlight" controls (red light keeps night vision). Single dark look by choice. */
 :root{--void:#020308;--panel:rgba(14,6,8,.78);--line:rgba(255,110,95,.22);--ink:#f0c8c0;--dim:#a8776f;--red:#ff6a5c;
- --f-body:"Barlow Semi Condensed","Noto Sans Bengali","Noto Sans Devanagari",ui-sans-serif,system-ui,sans-serif;--f-mono:"Chivo Mono",ui-monospace,monospace;color-scheme:dark}
+ --f-body:"Barlow Semi Condensed","Noto Sans Bengali","Noto Sans Devanagari","Noto Sans Oriya",ui-sans-serif,system-ui,sans-serif;--f-mono:"Chivo Mono",ui-monospace,monospace;color-scheme:dark}
 html,body{height:100%;margin:0;overflow:hidden;background:var(--void);color:var(--ink);font-family:var(--f-body)}
 [hidden]{display:none!important}
 canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
@@ -60,6 +60,7 @@ body.stereo #divider{display:block}
 </div>
 <div class="hud bottom">
   <div class="strip">
+    <button id="langBtn" class="big">🌐 English</button>
     <button id="zinBtn" class="big" data-i="closer">Closer</button>
     <button id="zoutBtn" class="big" data-i="back">Back</button>
     <button id="voiceCmdBtn" aria-pressed="false" data-i="voice">Voice commands</button>
@@ -89,7 +90,7 @@ body.stereo #divider{display:block}
  <div class="panel" role="dialog" aria-labelledby="setTitle">
   <div class="row" style="justify-content:space-between"><h3 id="setTitle" data-i="settings">Settings</h3><button id="closeSet" data-i="close">Close</button></div>
   <div class="grp"><h3 data-i="lang">Language</h3>
-   <div class="row"><select id="langSel"><option value="en">English</option><option value="bn">বাংলা</option><option value="hi">हिन्दी</option></select></div>
+   <div class="row"><select id="langSel"><option value="en">English</option><option value="bn">বাংলা</option><option value="hi">हिन्दी</option><option value="or">ଓଡ଼ିଆ</option></select></div>
   </div>
   <div class="grp"><h3 data-i="voiceSel">Narration voice</h3>
    <div class="row"><select id="voiceSel"></select><button id="testVoice" data-i="test">Test voice</button></div>
@@ -112,10 +113,10 @@ body.stereo #divider{display:block}
   <div class="grp"><div class="row"><label for="dsoChk"><input id="dsoChk" type="checkbox"> <span data-i="dso">Nebula and galaxy photos</span></label></div></div>
   <div class="grp"><h3 data-i="offline">Offline data</h3>
    <p class="tip" data-i="offTxt"></p>
-   <div class="row"><button id="dlBtn" data-i="dlAll">Download everything (135 MB)</button><span class="tip" id="dlState"></span></div>
+   <div class="row"><button id="dlBtn" data-i="dlAll">Download everything (150 MB)</button><span class="tip" id="dlState"></span></div>
   </div>
   <div class="grp"><h3 data-i="credits">Data and image credits</h3>
-   <p class="cred">Positions: Astronomy Engine (Don Cross, MIT licence). Stars: HYG database 3.8 (Hipparcos, Yale, Gliese; CC BY-SA). Comets: Minor Planet Center ephemerides (Oct 2026–Jan 2027). Constellation lines, Messier list: d3-celestial (BSD). Planet, moon and ring maps (Björn Jónsson and others), Milky Way panorama, nebula photos (credited per image): Stellarium project (GPL). Great Red Spot longitude model: davidastro.com estimate. Non-commercial personal use.</p>
+   <p class="cred">Positions: Astronomy Engine (Don Cross, MIT licence). Stars: HYG database 3.8 and AT-HYG v3.2 (Hipparcos, Tycho-2, Gaia DR3, Yale, Gliese; CC BY-SA 4.0). Comets: Minor Planet Center ephemerides (Oct 2026–Jan 2027). Constellation lines, Messier list: d3-celestial (BSD). Planet, moon and ring maps (Björn Jónsson and others), Milky Way panorama, nebula photos (credited per image): Stellarium project (GPL). Great Red Spot longitude model: davidastro.com estimate. Non-commercial personal use.</p>
   </div>
  </div>
 </div>

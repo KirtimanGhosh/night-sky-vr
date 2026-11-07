@@ -18,7 +18,7 @@ const T=(k,p)=>{let s=(L().t[k]!=null?L().t[k]:I18N.en.t[k])||'';if(p)for(const 
 function fmtNum(n,dec){return Number(n).toLocaleString(S.lang==='en'?'en-US':'en-IN',{maximumFractionDigits:dec||0,minimumFractionDigits:dec||0});}
 function sig2(n){if(n<10)return Math.round(n);const p=Math.pow(10,Math.floor(Math.log10(n))-1);return Math.round(n/p)*p;}
 function bigWords(n){n=sig2(n);if(S.lang==='en'){return n>=1e9?(+(n/1e9).toPrecision(2))+' billion':n>=1e6?(+(n/1e6).toPrecision(2))+' million':fmtNum(n);}
-  const cr=S.lang==='bn'?'কোটি':'करोड़',lk=S.lang==='bn'?'লক্ষ':'लाख';
+  const cr={bn:'কোটি',hi:'करोड़',or:'କୋଟି'}[S.lang]||'crore',lk={bn:'লক্ষ',hi:'लाख',or:'ଲକ୍ଷ'}[S.lang]||'lakh';
   return n>=1e7?(+(n/1e7).toPrecision(3))+' '+cr:n>=1e5?(+(n/1e5).toPrecision(2))+' '+lk:fmtNum(n);}
 
 // ---------------- time & place ----------------
@@ -69,6 +69,17 @@ const starMat=new THREE.ShaderMaterial({
 {const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('color',new THREE.BufferAttribute(col,3));
  g.setAttribute('mag',new THREE.BufferAttribute(sMag,1));g.setAttribute('tw',new THREE.BufferAttribute(tw,1));const p=new THREE.Points(g,starMat);p.frustumCulled=false;sky.add(p);}
 
+// ---- deep catalogue: AT-HYG v3.2 (Tycho-2 + Gaia DR3), 2.5 million stars fainter than mag 8, in 10-degree declination strips ----
+const DEEP=[...Array(18)].map((_,b)=>({b,state:0,pts:null,v:null,m:null,n:0}));let deepCount=0;
+function loadDeep(d){d.state=1;fetch('data/deep/b'+String(d.b).padStart(2,'0')+'.bin').then(r=>{if(!r.ok)throw 0;return r.arrayBuffer();}).then(buf=>{
+  const u=new Uint8Array(buf),n=u.length/7,dvv=new DataView(buf),P=new Float32Array(n*3),C=new Float32Array(n*3),M=new Float32Array(n),W=new Float32Array(n),Vv=new Float32Array(n*3),d0=-90+10*d.b;
+  for(let i=0;i<n;i++){const o=i*7,ra=(u[o]|(u[o+1]<<8)|(u[o+2]<<16))/16777215*360,de=d0+dvv.getUint16(o+3,true)/65535*10,m=8+u[o+5]/40,ci=dvv.getInt8(o+6)/60;
+    const a=ra*D2R,dd=de*D2R,cd=Math.cos(dd),x=cd*Math.cos(a),y=cd*Math.sin(a),z=Math.sin(dd);Vv[i*3]=x;Vv[i*3+1]=y;Vv[i*3+2]=z;P[i*3]=x*R;P[i*3+1]=y*R;P[i*3+2]=z*R;
+    const c=bvRGB(ci);C[i*3]=c.r;C[i*3+1]=c.g;C[i*3+2]=c.b;M[i]=m;W[i]=0;}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(P,3));g.setAttribute('color',new THREE.BufferAttribute(C,3));g.setAttribute('mag',new THREE.BufferAttribute(M,1));g.setAttribute('tw',new THREE.BufferAttribute(W,1));
+  d.pts=new THREE.Points(g,starMat);d.pts.frustumCulled=false;sky.add(d.pts);d.v=Vv;d.m=M;d.n=n;d.state=2;deepCount+=n;}).catch(()=>{d.state=0;});}
+function deepUpdate(cEq,fov){if(fov>16)return;const dec=Math.asin(Math.max(-1,Math.min(1,cEq.z)))/D2R,h=fov*0.8;
+  for(const d of DEEP){const lo=-90+10*d.b,hi=lo+10;if(d.state===0&&hi>=dec-h&&lo<=dec+h)loadDeep(d);}}
 // Milky Way: photographic all-sky panorama (Stellarium), equatorial J2000, u = 0.25 - RA/360
 const mwMat=new THREE.ShaderMaterial({uniforms:{map:{value:null},uGround:{value:1},uK:{value:1}},side:THREE.BackSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
   vertexShader:`varying vec3 vE;varying float vAlt;void main(){vE=position;vec4 wp=modelMatrix*vec4(position,1.);vAlt=normalize(wp.xyz).y;gl_Position=projectionMatrix*viewMatrix*wp;}`,
@@ -79,7 +90,7 @@ new THREE.TextureLoader().load('tex/milkyway.jpg',t=>{t.generateMipmaps=false;t.
 sky.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.05,96,48),mwMat));
 
 // ---------------- labels ----------------
-const labels=[];const FONT='"Barlow Semi Condensed","Noto Sans Bengali","Noto Sans Devanagari",sans-serif';
+const labels=[];const FONT='"Barlow Semi Condensed","Noto Sans Bengali","Noto Sans Devanagari","Noto Sans Oriya",sans-serif';
 function label(text,h,color,italic){const cv=document.createElement('canvas'),g=cv.getContext('2d'),fs=64,font=`${italic?'italic ':''}500 ${fs}px ${FONT}`;
   g.font=font;const w=Math.ceil(g.measureText(text).width)+24;cv.width=w;cv.height=fs*1.45;g.font=font;g.fillStyle=color;g.textBaseline='middle';g.fillText(text,12,cv.height/2);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),transparent:true,depthWrite:false,depthTest:false,opacity:.88}));
@@ -288,7 +299,7 @@ groundGroup.add(new THREE.Mesh(new THREE.SphereGeometry(145,64,32),new THREE.Sha
   vertexShader:`varying vec3 vP;void main(){vP=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
   fragmentShader:`varying vec3 vP;void main(){float a=vP.y<0.?0.:exp(-vP.y*9.);gl_FragColor=vec4(vec3(.05,.07,.12)*a,1.);}`})));
 const cardinal=new THREE.Group();groundGroup.add(cardinal);
-function mkCardinal(){clearGroup(cardinal);const N={en:['N','E','S','W'],bn:['উ','পূ','দ','প'],hi:['उ','पू','द','प']}[S.lang];[[0,-1],[1,0],[0,1],[-1,0]].forEach(([x,z],i)=>{const sp=label(N[i],3.4,'#ff6a5c');sp.position.set(x*95,4,z*95);cardinal.add(sp);});}
+function mkCardinal(){clearGroup(cardinal);const N={en:['N','E','S','W'],bn:['উ','পূ','দ','প'],hi:['उ','पू','द','प'],or:['ଉ','ପୂ','ଦ','ପ']}[S.lang];[[0,-1],[1,0],[0,1],[-1,0]].forEach(([x,z],i)=>{const sp=label(N[i],3.4,'#ff6a5c');sp.position.set(x*95,4,z*95);cardinal.add(sp);});}
 
 // own 360 photo
 const photoMat=new THREE.MeshBasicMaterial({color:0xffffff});const photoGeo=new THREE.SphereGeometry(400,96,64);photoGeo.scale(-1,1,1);
@@ -306,12 +317,14 @@ function updateTitle(){$('place').textContent=`${S.place} · ${Math.abs(S.lat).t
 function updateReadout(){const d=new Date(simNow());const live=!paused&&tSpeed===1&&Math.abs(simNow()-Date.now())<60000;
   $('clock').innerHTML=`<b>${d.toLocaleString(S.lang==='en'?'en-GB':S.lang+'-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</b>${live?' <span class="live">LIVE</span>':(tSpeed!==1&&!paused?' ×'+tSpeed:'')} · ${camera.fov<1?(camera.fov*60).toFixed(0)+'′':camera.fov.toFixed(camera.fov<10?1:0)+'°'}`;}
 function applyLang(){const u=L().ui;document.documentElement.lang=S.lang;document.querySelectorAll('[data-i]').forEach(el=>{const k=el.getAttribute('data-i');if(u[k])el.textContent=u[k];});
-  $('sayWords').textContent=L().cmdWords.join(' · ');viewLabel();mkStaticLabels();mkCardinal();for(const k in solarLbl){solarNames.remove(solarLbl[k]);dropLabel(solarLbl[k]);delete solarLbl[k];}
+  $('sayWords').textContent=L().cmdWords.join(' · ');viewLabel();langLabel();mkStaticLabels();mkCardinal();for(const k in solarLbl){solarNames.remove(solarLbl[k]);dropLabel(solarLbl[k]);delete solarLbl[k];}
   pathAt=-1e18;updateSolar();fillVoices();if(listening)startRec();}
 function toggle(id,key,fn){const b=$(id);b.setAttribute('aria-pressed',!!S[key]);b.onclick=()=>{S[key]=!S[key];save();b.setAttribute('aria-pressed',S[key]);fn&&fn(S[key]);};}
 let linesUntil=0;const showLines=()=>performance.now()<linesUntil||(synth&&synth.speaking&&linesUntil>0);toggle('namesBtn','names');toggle('groundBtn','ground',on=>{starMat.uniforms.uGround.value=on?1:0;mwMat.uniforms.uGround.value=on?1:0;});
 toggle('narrBtn','narr',on=>{if(!on){synth&&synth.cancel();cap.hidden=true;setCapSprite(null);}else lastSaid=null;});
 toggle('tiltBtn','tilt');
+const LANGS=['en','bn','hi','or'],langBtn=$('langBtn');function langLabel(){langBtn.textContent='🌐 '+I18N[S.lang].name;}
+langBtn.onclick=()=>{S.lang=LANGS[(LANGS.indexOf(S.lang)+1)%LANGS.length];S.voiceURI='';save();$('langSel').value=S.lang;applyLang();};
 const viewBtn=$('viewBtn');function viewLabel(){viewBtn.textContent=S.night?L().ui.nightV:L().ui.actualV;viewBtn.setAttribute('aria-pressed',S.night);}
 viewBtn.onclick=()=>{S.night=!S.night;save();viewLabel();};
 $('nowBtn').onclick=()=>{paused=false;tSpeed=1;setSim(Date.now());syncTimeUI();};
@@ -323,7 +336,7 @@ const sheet=$('sheet');$('setBtn').onclick=()=>{syncTimeUI();sheet.hidden=false;
 $('langSel').value=S.lang;$('langSel').onchange=e=>{S.lang=e.target.value;S.voiceURI='';save();applyLang();};
 $('rate').value=S.rate;$('rate').oninput=e=>{S.rate=+e.target.value;save();};
 $('voiceSel').onchange=e=>{S.voiceURI=e.target.value;save();};
-$('testVoice').onclick=()=>speak(S.lang==='bn'?'নমস্কার। আজ রাতের আকাশ দেখতে প্রস্তুত?':S.lang==='hi'?'नमस्ते। आज रात का आसमान देखने के लिए तैयार?':'Hello. Ready to explore tonight’s sky?',true);
+$('testVoice').onclick=()=>speak({bn:'নমস্কার। আজ রাতের আকাশ দেখতে প্রস্তুত?',hi:'नमस्ते। आज रात का आसमान देखने के लिए तैयार?',or:'ନମସ୍କାର। ଆଜି ରାତିର ଆକାଶ ଦେଖିବାକୁ ପ୍ରସ୍ତୁତ?',en:'Hello. Ready to explore tonight’s sky?'}[S.lang],true);
 $('gpsBtn').onclick=()=>{if(!navigator.geolocation){say('GPS is not available on this device.');return;}navigator.geolocation.getCurrentPosition(p=>{setPlace(+p.coords.latitude.toFixed(4),+p.coords.longitude.toFixed(4),'GPS');$('latIn').value=S.lat;$('lonIn').value=S.lon;say('Location updated.',2500);},e=>say('Could not get your location: '+e.message,6000),{enableHighAccuracy:true,timeout:15000});};
 $('latIn').value=S.lat;$('lonIn').value=S.lon;
 const setLL=()=>{const a=+$('latIn').value,b=+$('lonIn').value;if(isFinite(a)&&isFinite(b)&&Math.abs(a)<=90&&Math.abs(b)<=180)setPlace(a,b,'Custom');};$('latIn').onchange=setLL;$('lonIn').onchange=setLL;
@@ -336,12 +349,12 @@ $('pauseBtn').onclick=()=>{if(paused){paused=false;realAnchor=performance.now();
 $('grsIn').value=S.grs;$('grsIn').onchange=e=>{S.grs=e.target.value.trim();save();timeJumped=true;};
 $('ipd').value=S.ipd;$('ipdOut').textContent=S.ipd+' mm';$('ipd').oninput=e=>{S.ipd=+e.target.value;$('ipdOut').textContent=S.ipd+' mm';save();};
 // ---- download everything for offline use ----
-const CORE_FILES=['index.html','app.js','i18n.js','lib/three.min.js','lib/astronomy.browser.min.js','data/skydata.js','data/comets.js','tex/milkyway.jpg','tex/moon.jpg','tex/mercury.png','tex/venus.png','tex/mars.png','tex/jupiter.png','tex/saturn.png','tex/uranus.png','tex/neptune.png','tex/io.png','tex/europa.png','tex/ganymede.png','tex/callisto.png','tex/saturn_rings_radial.png'];
+const CORE_FILES=['index.html','app.js','i18n.js','lib/three.min.js','lib/astronomy.browser.min.js','data/skydata.js','data/comets.js','tex/milkyway.jpg','tex/moon.jpg','tex/mercury.png','tex/venus.png','tex/mars.png','tex/jupiter.png','tex/saturn.png','tex/uranus.png','tex/neptune.png','tex/io.png','tex/europa.png','tex/ganymede.png','tex/callisto.png','tex/saturn_rings_radial.png',...[...Array(18)].map((_,b)=>'data/deep/b'+String(b).padStart(2,'0')+'.bin')];
 let dlRun=false;const dlBtn=$('dlBtn'),dlState=$('dlState');
 async function dlCount(){if(!window.caches)return;try{const c=await caches.open('nsvr-img');const k=await c.keys();const n=new Set(k.map(r=>r.url));const have=NEB.filter(x=>n.has(NEB_BASE+x.url)).length;dlState.textContent=have+' / '+NEB.length;if(have===NEB.length)dlState.textContent=L().ui.dlDone;return have;}catch(_){}}
 dlBtn.onclick=async()=>{if(!window.caches){say('Offline storage is not available here.');return;}
   if(dlRun){dlRun=false;return;}dlRun=true;dlBtn.textContent=L().ui.dlStop;try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist();}catch(_){}
-  try{const core=await caches.open('nsvr-v5');await Promise.all(CORE_FILES.map(u=>core.match(u).then(m=>m||core.add(u)).catch(()=>null)));}catch(_){}
+  try{const core=await caches.open('nsvr-v6');await Promise.all(CORE_FILES.map(u=>core.match(u).then(m=>m||core.add(u)).catch(()=>null)));}catch(_){}
   const c=await caches.open('nsvr-img');const have=new Set((await c.keys()).map(r=>r.url));const todo=NEB.map(x=>NEB_BASE+x.url).filter(u=>!have.has(u));let done=NEB.length-todo.length,fail=0,i=0;
   async function worker(){while(dlRun&&i<todo.length){const u=todo[i++];try{const r=await fetch(u,{mode:'cors'});if(r.ok){await c.put(u,r);done++;}else fail++;}catch(_){fail++;}dlState.textContent=done+' / '+NEB.length;}}
   await Promise.all([worker(),worker(),worker(),worker()]);dlRun=false;dlBtn.textContent=L().ui.dlAll;dlState.textContent=fail?L().ui.dlFail:(done===NEB.length?L().ui.dlDone:done+' / '+NEB.length);};
@@ -409,7 +422,7 @@ function starKind(sp){const Lg=L();sp=(sp||'').trim();const c=Lg.col[sp[0]];cons
 function starDesc(i,short){const f=INFO[i];let t=starName(i)+' '+starKind(f[4]);
   t+=f[5]>0&&f[5]<4000?T('starDist',{n:fmtNum(spLy(f[5]))}):T('starFar');if(!short&&f[6]>=2&&f[5]>0&&f[5]<4000)t+=T('lum',{n:bigWords(f[6])});return t+T('mag',{m:sMag[i].toFixed(1)});}
 function dsoDesc(o){let t=o.id+(o.alt?', '+o.alt:'')+', '+(L().type[o.type]||'');if(o.dim){t+=o.dim>=60?T('acrossDeg',{n:(o.dim/60).toFixed(1)}):T('across',{n:Math.round(o.dim)});const mr=Math.round(o.dim/31*2)/2;if(mr>=1.5)t+=mr===2?T('twice'):T('moonW',{n:mr});}
-  if(DSODIST[o.id])t+=T('away',{d:bigWords(DSODIST[o.id])+(S.lang==='en'?' light years':S.lang==='bn'?' আলোকবর্ষ':' प्रकाश वर्ष')});if(o.mag&&o.mag<50)t+=T('mag',{m:(+o.mag).toFixed(1)});return t;}
+  if(DSODIST[o.id])t+=T('away',{d:bigWords(DSODIST[o.id])+({en:' light years',bn:' আলোকবর্ষ',hi:' प्रकाश वर्ष',or:' ଆଲୋକବର୍ଷ'}[S.lang])});if(o.mag&&o.mag<50)t+=T('mag',{m:(+o.mag).toFixed(1)});return t;}
 function fmtKm(au){const km=au*AU_KM;return T('km',{n:bigWords(km)});}
 function lightTime(au){const s=au*AU_KM/C_KMS;return s<60?T('sec',{n:s.toFixed(1)}):s<3600?T('min',{n:Math.round(s/60)}):T('hr',{n:(s/3600).toFixed(1)});}
 function phaseIdx(a){return a<10||a>350?0:a<80?1:a<100?2:a<170?3:a<190?4:a<260?5:a<280?6:7;}
@@ -436,6 +449,7 @@ const itemText=o=>o.kind==='body'?bodyText(o.p):o.kind==='gal'?galText(o.g):o.ki
 const itemName=o=>o.kind==='body'?(L().label[o.p.k]||L().planet[o.p.k]):o.kind==='gal'?L().planet[o.g.k]:o.kind==='comet'?o.cm.n:o.s.n[S.lang];
 function fieldReport(){const c=centreEq(),rad=camera.fov/2*D2R,cr=Math.cos(rad),lim=starMat.uniforms.uLim.value;let count=0;const cc={},br=[];
   for(let i=0;i<NS;i++){const d=c.x*sV[i*3]+c.y*sV[i*3+1]+c.z*sV[i*3+2];if(d<cr)continue;if(sMag[i]<=lim)count++;if(i<INFO.length){cc[INFO[i][3]]=(cc[INFO[i][3]]||0)+1;if(br.length<3)br.push(i);}}
+  for(const d of DEEP){if(d.state!==2)continue;const v=d.v,m=d.m;for(let i=0;i<d.n;i++){if(m[i]>lim)continue;if(c.x*v[i*3]+c.y*v[i*3+1]+c.z*v[i*3+2]>=cr)count++;}}
   let con=null,cm=0;for(const k in cc)if(cc[k]>cm){cm=cc[k];con=k;}
   const ds=DSO.filter(o=>Math.acos(Math.min(1,c.dot(o.v)))<rad+o.dim/120*D2R).sort((a,b)=>c.dot(b.v)-c.dot(a.v)).slice(0,2);const sol=solarInView(c,rad).slice(0,3);
   let t=T('fov',{f:camera.fov<10?camera.fov.toFixed(camera.fov<1?2:1):Math.round(camera.fov)})+(con?T('inCon',{c:conName(con)}):(S.lang==='en'?'. ':'। '));
@@ -540,7 +554,7 @@ function frame(){const dt=Math.min(clock.getDelta(),0.1),now=performance.now();s
   if(timeJumped||now-lastSolar>(fast?80:2000)){updateSolar();lastSolar=now;timeJumped=false;}
   if(tween){tween.t+=dt;const u=Math.min(1,tween.t/tween.dur),e=u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;camera.fov=tween.from*Math.pow(tween.to/tween.from,e);camera.updateProjectionMatrix();warp=(tween.to<tween.from?1:-1)*Math.sin(Math.PI*u);if(u>=1){tween=null;warp=0;}}
   else if(Math.abs(camera.fov-fovGoal)>1e-4){camera.fov+=(fovGoal-camera.fov)*Math.min(1,dt*4);camera.updateProjectionMatrix();}
-  const f=camera.fov;const tk=S.night?0:twK,dk=S.night?0:dayK;starMat.uniforms.uLim.value=6+2*Math.max(0,Math.min(1,(FOV0-f)/(FOV0-10)))-(tk*tk)*3.5-dk*5;mwMat.uniforms.uK.value=Math.max(0.35,Math.min(1,f/40))*(1-tk);
+  const f=camera.fov;const tk=S.night?0:twK,dk=S.night?0:dayK;const lim0=f>=10?6+2*Math.max(0,Math.min(1,(FOV0-f)/(FOV0-10))):Math.min(13.5,8+2.86*Math.log10(10/f));starMat.uniforms.uLim.value=lim0-(tk*tk)*3.5-dk*5;mwMat.uniforms.uK.value=Math.max(0.35,Math.min(1,f/40))*(1-tk);
   bg.copy(NIGHT).lerp(TWI,tk*(1-dk)).lerp(DAY,dk);renderer.setClearColor(bg);
   const k=Math.tan(f/2*D2R)/Math.tan(35*D2R);ret.scale.setScalar(k);for(const s of labels){if(s===capSprite)continue;s.scale.set(s.userData.base[0]*k,s.userData.base[1]*k,1);}
   const zoomed=fovGoal<FOV0-1;const LN=showLines();if(!LN&&linesUntil&&performance.now()>linesUntil&&!(synth&&synth.speaking))linesUntil=0;lineGroup.visible=LN;consNames.visible=S.names&&f>30;starNames.visible=S.names;zoomNames.visible=S.names&&zoomed;dsoGroup.visible=f<45;dsoGroup.children.forEach(o=>{if(o.userData.ring)o.visible=LN;});
@@ -553,7 +567,7 @@ function frame(){const dt=Math.min(clock.getDelta(),0.1),now=performance.now();s
   else camera.quaternion.setFromEuler(new THREE.Euler(pitch,-az,0,'YXZ')).premultiply(qTrack);
   camera.getWorldDirection(trackW);trackEq=trackW.clone().applyMatrix4(invSky).normalize();
   if(zoomed&&Math.abs(f-fovGoal)<0.05*fovGoal){const c=centreEq();if(!zoomLabelAt||Math.acos(Math.min(1,c.dot(zoomLabelAt)))/D2R>f*0.25)refreshZoomNames();}else if(!zoomed&&zoomNames.children.length){refreshZoomNames();zoomLabelAt=null;}
-  if(now-lastNeb>500){nebUpdate(centreEq(),f);lastNeb=now;}
+  if(now-lastNeb>500){const ce=centreEq();nebUpdate(ce,f);deepUpdate(ce,f);lastNeb=now;}
   updateWarp(dt);headTilt(dt);narrate(dt);if(capSprite)capSprite.visible=stereo;
   if(now-lastRead>500){updateReadout();lastRead=now;}
   const w=innerWidth,h=innerHeight;

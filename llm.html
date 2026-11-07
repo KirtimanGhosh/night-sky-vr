@@ -65,6 +65,7 @@ Rules:
 - To pick "a comet", "a galaxy", "a planet" etc., use the type column. Prefer objects above the horizon (altitude > 0); among comets prefer the brightest (smallest magnitude).
 - If the target is below the horizon, still use goto but say it is below the horizon.
 - Words like "it", "that", "there" refer to the object discussed last.
+- If the user asks for something that is not in the list (for example a pulsar or a black hole), use action "none", target "", and say it is not among the objects the app can show tonight.
 - Use ONLY the facts listed above. If a fact is not listed, say you do not know. Never invent numbers.
 - Write "say" in ${LN[lang]}, one or two short sentences, natural and friendly.
 Reply as JSON: {"action":..., "target":..., "say":...}`;}
@@ -72,15 +73,17 @@ const SCHEMA=JSON.stringify({type:'object',properties:{action:{type:'string',enu
 let engine=null,hist=[],busy=false,curModel='';
 function chips(){const c=$('chips');c.innerHTML='';TESTS[$('lang').value].forEach(t=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>ask(t);c.appendChild(b);});}
 $('lang').onchange=()=>{chips();};chips();
+async function loadModel(m){if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+ if(engine){try{await engine.unload();}catch(_){}engine=null;}const t0=performance.now();
+ engine=await webllm.CreateMLCEngine(m,{initProgressCallback:p=>{$('bar').firstChild.style.width=Math.round((p.progress||0)*100)+'%';$('stat').textContent=p.text;}},{context_window_size:2048});
+ curModel=m;return (performance.now()-t0)/1000;}
 $('load').onclick=async()=>{const m=$('model').value;if(engine&&curModel===m)return;$('load').disabled=true;$('stat').textContent='Starting…';
- try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
-  if(engine){await engine.unload();}const t0=performance.now();
-  engine=await webllm.CreateMLCEngine(m,{initProgressCallback:p=>{$('bar').firstChild.style.width=Math.round((p.progress||0)*100)+'%';$('stat').textContent=p.text;}});
-  curModel=m;$('stat').textContent='Ready: '+m+' (loaded in '+((performance.now()-t0)/1000).toFixed(0)+' s). Hold the button and speak, or tap a test sentence.';
+ try{const dt=await loadModel(m);$('stat').textContent='Ready: '+m+' (loaded in '+dt.toFixed(0)+' s). Hold the button and speak, or tap a test sentence.';
   ['talk','txt','send'].forEach(i=>$(i).disabled=false);}
  catch(e){$('stat').textContent='Could not load: '+e.message;}
  $('load').disabled=false;};
-async function ask(text){if(!engine||busy||!text.trim())return;busy=true;const lang=$('lang').value;
+const GPU_LOST=/instance reference|device.*lost|lost.*device|mapAsync|GPUBuffer|destroyed|GPU/i;
+async function ask(text,retry){if(!engine||(busy&&!retry)||!text.trim())return;busy=true;const lang=$('lang').value;
  const card=document.createElement('div');card.innerHTML='<div class="you"></div><div class="say">…thinking</div><div class="act"></div><div class="tm"></div>';$('log').prepend(card);card.querySelector('.you').textContent='You: '+text;
  const msgs=[{role:'system',content:sysPrompt(lang)},...hist.slice(-6),{role:'user',content:text}];const t0=performance.now();
  try{const r=await engine.chat.completions.create({messages:msgs,temperature:0.3,max_tokens:160,response_format:{type:'json_object',schema:SCHEMA},extra_body:{enable_thinking:false}});
@@ -90,8 +93,13 @@ async function ask(text){if(!engine||busy||!text.trim())return;busy=true;const l
   const u=r.usage||{},ex=u.extra||{};card.querySelector('.tm').textContent=dt.toFixed(1)+' s'+(ex.decode_tokens_per_s?' · '+ex.decode_tokens_per_s.toFixed(1)+' text-pieces/s writing · '+(ex.prefill_tokens_per_s||0).toFixed(0)+'/s reading':'');
   hist.push({role:'user',content:text},{role:'assistant',content:raw});
   if($('speakOn').checked&&o.say&&window.speechSynthesis){const s=new SpeechSynthesisUtterance(o.say);s.lang=SR_L[lang];const v=speechSynthesis.getVoices().filter(v=>v.lang.replace('_','-').startsWith(SR_L[lang].slice(0,2)));if(v.length)s.voice=v.find(x=>/google|natural/i.test(x.name))||v[0];speechSynthesis.cancel();speechSynthesis.speak(s);}}
- catch(e){card.querySelector('.say').textContent='Error: '+e.message;}
+ catch(e){if(!retry&&GPU_LOST.test(e.message)){card.querySelector('.say').textContent='The phone reset its graphics chip; reloading the model from storage and trying again…';
+   try{const dt=await loadModel(curModel);card.remove();$('stat').textContent='Reloaded after a graphics reset ('+dt.toFixed(0)+' s). Resets so far: '+(++resets)+'.';busy=false;return ask(text,true);}
+   catch(e2){card.querySelector('.say').textContent='Reload failed: '+e2.message;}}
+  else card.querySelector('.say').textContent='Error: '+e.message;}
  busy=false;}
+let resets=0;
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&busy)$('stat').textContent='Keep this page on screen while it is answering.';});
 $('send').onclick=()=>{ask($('txt').value);$('txt').value='';};$('txt').onkeydown=e=>{if(e.key==='Enter')$('send').click();};
 $('clear').onclick=()=>{hist=[];$('log').innerHTML='';};
 $('del').onclick=async()=>{const m=$('model').value;try{if(engine&&curModel===m){await engine.unload();engine=null;curModel='';['talk','txt','send'].forEach(i=>$(i).disabled=true);}await webllm.deleteModelAllInfoInCache(m);$('stat').textContent='Deleted '+m+' from this phone.';}catch(e){$('stat').textContent='Delete failed: '+e.message;}};

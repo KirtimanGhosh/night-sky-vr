@@ -37,6 +37,7 @@ button[aria-pressed="true"]{background:rgba(255,106,92,.16);border-color:var(--r
 .say b{color:var(--ink);font-weight:400}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 150px);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;max-width:min(90vw,460px);text-align:center;z-index:6}
 #caption{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 58px);max-width:min(90vw,600px);text-align:center;font-size:14px;line-height:1.45;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;pointer-events:none;z-index:3}
+#turn{position:fixed;inset:0;z-index:7;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;background:rgba(2,3,8,.92);font-size:18px}
 #exitVR{position:fixed;top:calc(env(safe-area-inset-top,0px) + 6px);left:50%;transform:translateX(-50%);z-index:5;opacity:.55}
 body.stereo .hud,body.stereo #caption{display:none}
 #divider{display:none;position:fixed;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:#000;z-index:4;pointer-events:none}
@@ -66,10 +67,9 @@ body.stereo #divider{display:block}
     <button id="motionBtn" aria-pressed="false" data-i="look">Look around</button>
     <button id="alignBtn" data-i="align">Face north + align</button>
     <button id="tiltBtn" data-i="tilt">Head-tilt zoom</button>
-    <button id="pathsBtn" data-i="paths">Paths</button>
-    <button id="linesBtn" data-i="lines">Lines</button>
     <button id="namesBtn" data-i="names">Names</button>
     <button id="groundBtn" data-i="ground">Ground</button>
+    <button id="viewBtn" aria-pressed="true">Night view</button>
     <button id="nowBtn" data-i="now">Now</button>
     <button id="tonightBtn" data-i="tonight">Tonight 9 PM</button>
     <span class="filebtn"><input id="photoIn" type="file" accept="image/*"><span data-i="photo">360° photo</span></span>
@@ -82,6 +82,7 @@ body.stereo #divider{display:block}
 </div>
 <button id="exitVR" hidden data-i="exitvr">Exit headset view</button>
 <div id="toast" hidden></div>
+<div id="turn" hidden data-i="turn">Turn the phone sideways for the headset view</div>
 <div id="caption" aria-live="polite" hidden></div>
 
 <div id="sheet" hidden>
@@ -107,6 +108,7 @@ body.stereo #divider{display:block}
   <div class="grp"><h3 data-i="grs">Great Red Spot longitude (System II)</h3>
    <div class="row"><input id="grsIn" type="text" inputmode="decimal" placeholder="auto: 91.0° on 1 Jun 2026, +1.75°/month"></div>
   </div>
+  <div class="grp"><h3 data-i="vr">Headset view</h3><div class="row"><label for="ipd"><span data-i="ipd">Lens distance</span> <input id="ipd" type="range" min="50" max="80" step="1"> <b id="ipdOut"></b></label></div></div>
   <div class="grp"><div class="row"><label for="dsoChk"><input id="dsoChk" type="checkbox"> <span data-i="dso">Nebula and galaxy photos</span></label></div></div>
   <div class="grp"><h3 data-i="credits">Data and image credits</h3>
    <p class="cred">Positions: Astronomy Engine (Don Cross, MIT licence). Stars: HYG database 3.8 (Hipparcos, Yale, Gliese; CC BY-SA). Comets: Minor Planet Center ephemerides (Oct 2026–Jan 2027). Constellation lines, Messier list: d3-celestial (BSD). Planet, moon and ring maps (Björn Jónsson and others), Milky Way panorama, nebula photos (credited per image): Stellarium project (GPL). Great Red Spot longitude model: davidastro.com estimate. Non-commercial personal use.</p>

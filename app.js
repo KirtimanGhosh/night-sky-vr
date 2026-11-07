@@ -317,7 +317,7 @@ function updateTitle(){$('place').textContent=`${S.place} · ${Math.abs(S.lat).t
 function updateReadout(){const d=new Date(simNow());const live=!paused&&tSpeed===1&&Math.abs(simNow()-Date.now())<60000;
   $('clock').innerHTML=`<b>${d.toLocaleString(S.lang==='en'?'en-GB':S.lang+'-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</b>${live?' <span class="live">LIVE</span>':(tSpeed!==1&&!paused?' ×'+tSpeed:'')} · ${camera.fov<1?(camera.fov*60).toFixed(0)+'′':camera.fov.toFixed(camera.fov<10?1:0)+'°'}`;}
 function applyLang(){const u=L().ui;document.documentElement.lang=S.lang;document.querySelectorAll('[data-i]').forEach(el=>{const k=el.getAttribute('data-i');if(u[k])el.textContent=u[k];});
-  $('sayWords').textContent=L().cmdWords.join(' · ');viewLabel();langLabel();mkStaticLabels();mkCardinal();for(const k in solarLbl){solarNames.remove(solarLbl[k]);dropLabel(solarLbl[k]);delete solarLbl[k];}
+  $('sayWords').textContent=L().cmdWords.join(' · ');viewLabel();langLabel();$('freezeBtn').textContent=frozen?L().ui.unfreeze:L().ui.freeze;if(frozen){pickItems=viewItems();showPick();}mkStaticLabels();mkCardinal();for(const k in solarLbl){solarNames.remove(solarLbl[k]);dropLabel(solarLbl[k]);delete solarLbl[k];}
   pathAt=-1e18;updateSolar();fillVoices();if(listening)startRec();}
 function toggle(id,key,fn){const b=$(id);b.setAttribute('aria-pressed',!!S[key]);b.onclick=()=>{S[key]=!S[key];save();b.setAttribute('aria-pressed',S[key]);fn&&fn(S[key]);};}
 let linesUntil=0;const showLines=()=>performance.now()<linesUntil||(synth&&synth.speaking&&linesUntil>0);toggle('namesBtn','names');toggle('groundBtn','ground',on=>{starMat.uniforms.uGround.value=on?1:0;mwMat.uniforms.uGround.value=on?1:0;});
@@ -354,7 +354,7 @@ let dlRun=false;const dlBtn=$('dlBtn'),dlState=$('dlState');
 async function dlCount(){if(!window.caches)return;try{const c=await caches.open('nsvr-img');const k=await c.keys();const n=new Set(k.map(r=>r.url));const have=NEB.filter(x=>n.has(NEB_BASE+x.url)).length;dlState.textContent=have+' / '+NEB.length;if(have===NEB.length)dlState.textContent=L().ui.dlDone;return have;}catch(_){}}
 dlBtn.onclick=async()=>{if(!window.caches){say('Offline storage is not available here.');return;}
   if(dlRun){dlRun=false;return;}dlRun=true;dlBtn.textContent=L().ui.dlStop;try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist();}catch(_){}
-  try{const core=await caches.open('nsvr-v6');await Promise.all(CORE_FILES.map(u=>core.match(u).then(m=>m||core.add(u)).catch(()=>null)));}catch(_){}
+  try{const core=await caches.open('nsvr-v7');await Promise.all(CORE_FILES.map(u=>core.match(u).then(m=>m||core.add(u)).catch(()=>null)));}catch(_){}
   const c=await caches.open('nsvr-img');const have=new Set((await c.keys()).map(r=>r.url));const todo=NEB.map(x=>NEB_BASE+x.url).filter(u=>!have.has(u));let done=NEB.length-todo.length,fail=0,i=0;
   async function worker(){while(dlRun&&i<todo.length){const u=todo[i++];try{const r=await fetch(u,{mode:'cors'});if(r.ok){await c.put(u,r);done++;}else fail++;}catch(_){fail++;}dlState.textContent=done+' / '+NEB.length;}}
   await Promise.all([worker(),worker(),worker(),worker()]);dlRun=false;dlBtn.textContent=L().ui.dlAll;dlState.textContent=fail?L().ui.dlFail:(done===NEB.length?L().ui.dlDone:done+' / '+NEB.length);};
@@ -368,7 +368,8 @@ const FOV0=70,FOVMIN=0.005;let fovGoal=FOV0,tween=null,warp=0;
 function setFov(f){tween=null;fovGoal=Math.max(FOVMIN,Math.min(95,f));}
 canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch0=Math.hypot(a.x-b.x,a.y-b.y);}});
 canvas.addEventListener('pointermove',e=>{const pr=ptrs.get(e.pointerId);if(!pr)return;const k=camera.fov/70*0.005;
-  if(ptrs.size===1){if(motionOn&&devQ)yawOff+=(e.clientX-pr.x)*k;else{az-=(e.clientX-pr.x)*k;pitch=Math.max(-1.5,Math.min(1.5,pitch+(e.clientY-pr.y)*k));}}
+  if(ptrs.size===1&&frozen&&frozenEq){const w=frozenEq.clone().applyMatrix4(sky.matrix);let a2=Math.atan2(w.x,-w.z)-(e.clientX-pr.x)*k,p2=Math.max(-1.5,Math.min(1.5,Math.asin(w.y)+(e.clientY-pr.y)*k));frozenEq.set(Math.sin(a2)*Math.cos(p2),Math.sin(p2),-Math.cos(a2)*Math.cos(p2)).applyMatrix4(invSky).normalize();flyAnim=null;}
+  else if(ptrs.size===1){if(motionOn&&devQ)yawOff+=(e.clientX-pr.x)*k;else{az-=(e.clientX-pr.x)*k;pitch=Math.max(-1.5,Math.min(1.5,pitch+(e.clientY-pr.y)*k));}}
   pr.x=e.clientX;pr.y=e.clientY;if(ptrs.size===2){const [a,b]=[...ptrs.values()],d=Math.hypot(a.x-b.x,a.y-b.y);if(pinch0)setFov(fovGoal*pinch0/d);pinch0=d;}});
 const end=e=>{ptrs.delete(e.pointerId);pinch0=0;};canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);
 canvas.addEventListener('wheel',e=>{e.preventDefault();setFov(fovGoal*Math.exp(e.deltaY*.001));},{passive:false});
@@ -516,7 +517,8 @@ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;const vcBtn=$(
 const EN=I18N.en.cmd;
 function heard(text,final){const alts=text.split('|').map(s=>s.toLowerCase().replace(/[.,!?।"]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);if(!alts.length)return false;
   const busy=(synth&&synth.speaking)||performance.now()<speakingUntil,C=L().cmd;
-  const order=[['stop',()=>{synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);},true],['tell',tellMore,false],['closer',zoomIn,false],['back',zoomOut,false],['home',zoomReset,false]];
+  if(!busy&&pickByVoice(alts)){micState.textContent='✓ '+alts[0];return true;}
+  const order=[['unfreeze',()=>setFreeze(false),false],['freeze',()=>setFreeze(true),false],['stop',()=>{synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);},true],['tell',tellMore,false],['closer',zoomIn,false],['back',zoomOut,false],['home',zoomReset,false]];
   for(const [k,fn,safe] of order){if(busy&&!safe)continue;if(alts.some(a=>C[k].test(a)||EN[k].test(a))){const now=performance.now();if(k===lastCmd&&now-lastCmdAt<2500)return true;lastCmd=k;lastCmdAt=now;
       if(k!=='stop')synth&&synth.cancel();fn();micState.textContent='✓ '+alts[0];if(stereo&&k!=='tell')setCapSprite('✓');return true;}}
   if(final)micState.textContent=T('heard',{w:alts[0]});return false;}
@@ -530,7 +532,7 @@ function startRec(){if(!SR){say('Speech recognition is not available in this bro
   try{rec.start();if(!listening)say(L().cmdWords.join(' · '),4000);listening=true;vcBtn.setAttribute('aria-pressed','true');}catch(e){say('Voice commands could not start.');}}
 vcBtn.onclick=()=>{if(listening){listening=false;try{rec.abort();}catch(e){}vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;}else startRec();};
 let tiltArmed=true,tiltT=0;const rvec=new THREE.Vector3();
-function headTilt(dt){if(!S.tilt||!motionOn||!devQ)return;rvec.set(1,0,0).applyQuaternion(camera.quaternion);const roll=rvec.y;if(!tiltArmed){if(Math.abs(roll)<0.2)tiltArmed=true;return;}
+function headTilt(dt){if(frozen||!S.tilt||!motionOn||!devQ)return;rvec.set(1,0,0).applyQuaternion(camera.quaternion);const roll=rvec.y;if(!tiltArmed){if(Math.abs(roll)<0.2)tiltArmed=true;return;}
   if(Math.abs(roll)>0.42){tiltT+=dt;if(tiltT>0.6){tiltArmed=false;tiltT=0;roll<0?zoomIn():zoomOut();}}else tiltT=0;}
 
 // ---------------- zoom-dependent star names ----------------
@@ -541,6 +543,44 @@ function refreshZoomNames(){clearGroup(zoomNames);if(fovGoal>=FOV0-1)return;cons
 
 function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=stereo?(w/2)/h:w/h;camera.updateProjectionMatrix();}
 addEventListener('resize',resize);resize();
+
+// ---------------- freeze the view, list what is in it, fly to a chosen object ----------------
+let frozen=false,frozenEq=null,pickItems=[],flyAnim=null;const pickBox=$('pick'),pickGroup=new THREE.Group();sky.add(pickGroup);
+const NUMW={en:['one','two','three','four','five','six','seven','eight','nine'],bn:['এক','দুই','তিন','চার','পাঁচ','ছয়','সাত','আট','নয়'],hi:['एक','दो','तीन','चार','पांच','छह','सात','आठ','नौ'],or:['ଏକ','ଦୁଇ','ତିନି','ଚାରି','ପାଞ୍ଚ','ଛଅ','ସାତ','ଆଠ','ନଅ']};
+const DIG={bn:'০১২৩৪৫৬৭৮৯',hi:'०१२३४५६७८९',or:'୦୧୨୩୪୫୬୭୮୯'};
+function viewItems(){const c=centreEq(),rad=camera.fov/2*D2R,cr=Math.cos(rad*1.05),gOn=S.ground,out=[];const up=v=>!gOn||tv.copy(v).applyMatrix4(sky.matrix).y>-0.01;
+  PL.forEach(p=>{if(!p.v||!up(p.v))return;if(c.dot(p.v)<Math.cos(rad+p.ang))return;out.push({name:L().label[p.k]||L().planet[p.k],v:p.v.clone(),fov:Math.max(p.ang*2/D2R*(p.k==='Saturn'?6:4),0.006),info:()=>bodyText(p),pri:0});});
+  if(camera.fov<5)GAL.forEach(g=>{if(!g.v||g.hidden||c.dot(g.v)<cr)return;out.push({name:L().planet[g.k],v:g.v.clone(),fov:0.03,info:()=>galText(g),pri:1});});
+  comets.forEach(cm=>{if(cm.ok&&c.dot(cm.v)>=cr)out.push({name:cm.n.replace(/ \(.*\)/,''),v:cm.v.clone(),fov:0.5,info:()=>cometText(cm),pri:2});});
+  DSO.filter(o=>c.dot(o.v)>=cr&&up(o.v)).sort((a,b)=>(+a.mag||99)-(+b.mag||99)).slice(0,4).forEach(o=>out.push({name:o.id+(o.alt?' '+o.alt:''),v:o.v.clone(),fov:Math.min(30,Math.max(o.dim/60*1.8,0.25)),info:()=>dsoDesc(o),pri:3}));
+  let ns=0;for(let i=0;i<INFO.length&&ns<4;i++){if(!INFO[i][0]||sMag[i]>3.5)continue;tv.set(sV[i*3],sV[i*3+1],sV[i*3+2]);if(c.dot(tv)<cr||!up(tv))continue;const v=tv.clone(),ii=i;out.push({name:starProper(INFO[i][0]),v,fov:1,info:()=>starDesc(ii),pri:4});ns++;}
+  if(camera.fov>20){let nc=0;for(const k in consCen){if(c.dot(consCen[k])<Math.cos(rad*0.8)||!up(consCen[k]))continue;out.push({name:conName(k),v:consCen[k].clone(),fov:35,info:()=>consDesc(k),pri:5});if(++nc>=3)break;}}
+  return out.sort((a,b)=>a.pri-b.pri).slice(0,9);}
+function showPick(){pickBox.innerHTML='';clearGroup(pickGroup);
+  pickItems.forEach((it,i)=>{const b=document.createElement('button');b.textContent=(i+1)+'  '+it.name;b.onclick=()=>flyTo(i);pickBox.appendChild(b);
+    const sp=label((i+1)+' '+it.name,2.6,'#ffcf8a');sp.center.set(-0.15,-0.3);sp.position.copy(it.v).multiplyScalar(R*.95);pickGroup.add(sp);});
+  pickBox.hidden=!pickItems.length;}
+function setFreeze(on){frozen=on;$('freezeBtn').setAttribute('aria-pressed',on);$('freezeBtn').textContent=on?L().ui.unfreeze:L().ui.freeze;
+  if(on){camera.getWorldDirection(fwd);frozenEq=fwd.clone().applyMatrix4(invSky).normalize();pickItems=viewItems();showPick();
+    const list=pickItems.map((it,i)=>(i+1)+' '+it.name).join(', ');const txt=pickItems.length?T('pickList',{d:list}):T('pickNone');showForce=true;show(txt,'❄');showForce=false;speak(txt,true);}
+  else{pickItems=[];showPick();flyAnim=null;camera.getWorldDirection(fwd);az=Math.atan2(fwd.x,-fwd.z);pitch=Math.asin(fwd.y);qTrack.identity();trackEq=null;
+    if(motionOn&&devQ){const d=new THREE.Vector3(0,0,-1).applyQuaternion(qT.copy(qYaw.setFromAxisAngle(Y,yawOff)).multiply(devQ));yawOff+=Math.atan2(d.x,-d.z)-Math.atan2(fwd.x,-fwd.z);}
+    cap.hidden=true;setCapSprite(null);}}
+function flyTo(i){const it=pickItems[i];if(!it)return;if(!frozen)setFreeze(true);const from=frozenEq.clone(),to=it.v.clone().normalize();
+  const f0=camera.fov,f1=Math.max(FOVMIN,Math.min(FOV0,it.fov));flyAnim={from,to,t:0,dur:2.8,it};
+  // speed announcement uses the same arithmetic as the zoom
+  const Tg=moveTarget2(it);if(Tg){const s=speedPhrase(Tg,f0,f1,2.8);const txt=T(f1<f0?'move':'moveAway',{n:it.name,s:s.txt});speak(txt,true);showForce=true;show(txt,'→ '+it.name);showForce=false;}
+  tween={from:f0,to:f1,t:0,dur:2.8};fovGoal=f1;pendingReport=false;}
+function moveTarget2(it){const o=solarInView(it.v,0.2*D2R).find(o=>o.kind==='body'||o.kind==='gal'||o.kind==='comet');if(o){if(o.kind==='body')return{km:o.p.dist*AU_KM};if(o.kind==='gal')return{km:o.g.dist*AU_KM};return{km:o.cm.delta*AU_KM};}
+  const d=DSO.find(x=>x.v.dot(it.v)>0.99999&&DSODIST[x.id]);if(d)return{ly:DSODIST[d.id]};for(let i=0;i<INFO.length;i++){if(INFO[i][5]>0&&sV[i*3]*it.v.x+sV[i*3+1]*it.v.y+sV[i*3+2]*it.v.z>0.9999999)return{ly:INFO[i][5]};}return null;}
+function flyStep(dt){if(!flyAnim)return;flyAnim.t+=dt;const u=Math.min(1,flyAnim.t/flyAnim.dur),e=u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;
+  const ang=Math.acos(Math.min(1,flyAnim.from.dot(flyAnim.to)));if(ang<1e-9)frozenEq.copy(flyAnim.to);else{const s=Math.sin(ang);frozenEq.copy(flyAnim.from).multiplyScalar(Math.sin((1-e)*ang)/s).addScaledVector(flyAnim.to,Math.sin(e*ang)/s).normalize();}
+  if(u>=1){const it=flyAnim.it;flyAnim=null;const txt=it.info();setTimeout(()=>{speak(txt,true);showForce=true;show(txt,it.name);showForce=false;linesUntil=performance.now()+8000;},300);pickItems=viewItems();showPick();}}
+$('freezeBtn').onclick=()=>setFreeze(!frozen);
+function pickByVoice(alts){if(!frozen||!pickItems.length)return false;const nw=NUMW[S.lang]||[],ne=NUMW.en,dg=DIG[S.lang]||'';
+  for(const a of alts){for(let i=0;i<pickItems.length;i++){const n=String(i+1);if(new RegExp('(^|\\s)('+n+'|'+ne[i]+(nw[i]?'|'+nw[i]:'')+(dg?'|'+dg[i+1]:'')+')(\\s|$)').test(a)){flyTo(i);return true;}}
+    for(let i=0;i<pickItems.length;i++){const nm=pickItems[i].name.toLowerCase().split(/[ (,]/)[0];if(nm.length>2&&a.includes(nm)){flyTo(i);return true;}}}
+  return false;}
 
 // ---------------- main loop ----------------
 starMat.uniforms.uTw.value=reduceMotion?0:1;
@@ -562,10 +602,12 @@ function frame(){const dt=Math.min(clock.getDelta(),0.1),now=performance.now();s
   const pxPerRad=innerHeight/(f*D2R);PL.forEach((p,i)=>{if(i<7&&p.v)gMag[i]=(2*p.ang*pxPerRad>5)?99:p.mag;});gGeo.attributes.mag.needsUpdate=true;
   for(const key in solarLbl){const s=solarLbl[key];s.visible=S.names&&(s.userData.gal?f<3:s.userData.comet?f<40:true);}
   comets.forEach(c=>{c.spr.visible=c.ok&&f<40;});
+  if(frozen&&frozenEq){flyStep(dt);tA.copy(frozenEq).applyMatrix4(sky.matrix);camera.up.set(0,1,0);camera.lookAt(tA);}
+  else{
   if(zoomed&&f<20&&trackEq){tA.copy(trackEq).applyMatrix4(sky.matrix).normalize();qD.setFromUnitVectors(trackW,tA);qTrack.premultiply(qD);}else qTrack.identity();
   if(motionOn&&devQ){qYaw.setFromAxisAngle(Y,yawOff);qT.copy(qYaw).multiply(devQ).premultiply(qTrack);camera.quaternion.slerp(qT,f<30?Math.min(1,0.06+f/60):1);}
   else camera.quaternion.setFromEuler(new THREE.Euler(pitch,-az,0,'YXZ')).premultiply(qTrack);
-  camera.getWorldDirection(trackW);trackEq=trackW.clone().applyMatrix4(invSky).normalize();
+  camera.getWorldDirection(trackW);trackEq=trackW.clone().applyMatrix4(invSky).normalize();}
   if(zoomed&&Math.abs(f-fovGoal)<0.05*fovGoal){const c=centreEq();if(!zoomLabelAt||Math.acos(Math.min(1,c.dot(zoomLabelAt)))/D2R>f*0.25)refreshZoomNames();}else if(!zoomed&&zoomNames.children.length){refreshZoomNames();zoomLabelAt=null;}
   if(now-lastNeb>500){const ce=centreEq();nebUpdate(ce,f);deepUpdate(ce,f);lastNeb=now;}
   updateWarp(dt);headTilt(dt);narrate(dt);if(capSprite)capSprite.visible=stereo;

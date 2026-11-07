@@ -38,6 +38,9 @@ button[aria-pressed="true"]{background:rgba(255,106,92,.16);border-color:var(--r
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 150px);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;max-width:min(90vw,460px);text-align:center;z-index:6}
 #caption{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 58px);max-width:min(90vw,600px);text-align:center;font-size:14px;line-height:1.45;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;pointer-events:none;z-index:3}
 #turn{position:fixed;inset:0;z-index:7;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;background:rgba(2,3,8,.92);font-size:18px}
+#pick{position:fixed;right:max(10px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 120px);display:flex;flex-direction:column;gap:6px;z-index:4;max-height:55vh;overflow:auto}
+#pick button{background:rgba(14,6,8,.85);font-size:14px;text-align:left}
+body.stereo #pick{display:none}
 #exitVR{position:fixed;top:calc(env(safe-area-inset-top,0px) + 6px);left:50%;transform:translateX(-50%);z-index:5;opacity:.55}
 body.stereo .hud,body.stereo #caption{display:none}
 #divider{display:none;position:fixed;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:#000;z-index:4;pointer-events:none}
@@ -61,6 +64,7 @@ body.stereo #divider{display:block}
 <div class="hud bottom">
   <div class="strip">
     <button id="langBtn" class="big">🌐 English</button>
+    <button id="freezeBtn" class="big" aria-pressed="false">❄ Freeze</button>
     <button id="zinBtn" class="big" data-i="closer">Closer</button>
     <button id="zoutBtn" class="big" data-i="back">Back</button>
     <button id="voiceCmdBtn" aria-pressed="false" data-i="voice">Voice commands</button>
@@ -85,6 +89,7 @@ body.stereo #divider{display:block}
 <div id="toast" hidden></div>
 <div id="turn" hidden data-i="turn">Turn the phone sideways for the headset view</div>
 <div id="caption" aria-live="polite" hidden></div>
+<div id="pick" hidden></div>
 
 <div id="sheet" hidden>
  <div class="panel" role="dialog" aria-labelledby="setTitle">

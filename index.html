@@ -34,6 +34,8 @@ input[type=range]{accent-color:var(--red);flex:1;min-width:100px}
 .filebtn input{position:absolute;opacity:0;width:1px;height:1px}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 150px);background:var(--panel);
   border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;max-width:min(90vw,440px);text-align:center;z-index:6}
+#caption{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 58px);max-width:min(86vw,520px);text-align:center;font-size:14px;line-height:1.4;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;pointer-events:none;z-index:3}
+body.stereo #caption{display:none}
 #exitVR{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);z-index:5;opacity:.6}
 body.stereo .hud{display:none}
 body.stereo #divider{display:block}
@@ -55,6 +57,7 @@ body.stereo #divider{display:block}
       <button id="nowBtn">Tonight 9 PM</button>
     </div>
     <div class="row">
+      <button id="voiceBtn" aria-pressed="true">Narration</button>
       <button id="motionBtn" aria-pressed="false">Look around</button>
       <button id="alignBtn">Face north + align</button>
       <button id="linesBtn" aria-pressed="true">Lines</button>
@@ -69,6 +72,7 @@ body.stereo #divider{display:block}
 </div>
 <button id="exitVR" hidden>Exit headset view</button>
 <div id="toast" hidden></div>
+<div id="caption" aria-live="polite" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -271,13 +275,79 @@ let lastTap=0;canvas.addEventListener('pointerup',()=>{if(!stereo)return;const t
 function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=stereo?(w/2)/h:w/h;camera.updateProjectionMatrix();}
 addEventListener('resize',resize);resize();
 
+// ---------- narration ----------
+const INFO={
+ Sirius:"Sirius, the brightest star in the night sky. It is 8.6 light years away in Canis Major, the Great Dog, and has a faint white dwarf companion.",
+ Canopus:"Canopus, the second brightest star in the sky, about 310 light years away in the constellation Carina. From India it stays low in the south.",
+ Arcturus:"Arcturus, an orange giant star about 37 light years away, the brightest star in Bootes, the Herdsman.",
+ Vega:"Vega, a bright white star 25 light years away in Lyra, the Lyre. About 12,000 years from now it will be our pole star.",
+ Capella:"Capella, the brightest star in Auriga, the Charioteer. It is really two yellow giant stars orbiting each other, about 43 light years away.",
+ Rigel:"Rigel, a blue supergiant marking Orion's foot, roughly 860 light years away and tens of thousands of times more luminous than the Sun.",
+ Procyon:"Procyon, a nearby star only about 11 light years away, in Canis Minor, the Little Dog.",
+ Betelgeuse:"Betelgeuse, Orion's shoulder. It is a red supergiant so large it would reach past Mars if placed where the Sun is. In Indian astronomy this is Ardra. One day it will explode as a supernova.",
+ Altair:"Altair, a star 17 light years away in Aquila, the Eagle. It spins so fast, about once every nine hours, that it bulges at its equator.",
+ Aldebaran:"Aldebaran, the orange eye of Taurus the Bull, about 65 light years away. In Indian astronomy it is Rohini.",
+ Antares:"Antares, the red heart of Scorpius. It is a red supergiant about 550 light years away. Its name means rival of Mars.",
+ Spica:"Spica, the brightest star in Virgo, a close pair of hot blue stars about 250 light years away. In Indian astronomy it is Chitra.",
+ Deneb:"Deneb, the tail of Cygnus the Swan. It is one of the most luminous stars we can see, about two thousand light years away.",
+ Regulus:"Regulus, the heart of Leo the Lion, about 79 light years away. In Indian astronomy it is Magha.",
+ Polaris:"Polaris, the North Star. It sits almost exactly above Earth's north pole, so the whole sky turns around it. From Bhubaneswar it stands about 20 degrees above the northern horizon, equal to your latitude.",
+ Orion:"Orion, the Hunter. Look for the three stars of his belt. Just below the belt is the Orion Nebula, a cloud where new stars are being born, about 1,300 light years away.",
+ "Big Dipper":"The Big Dipper, called Saptarishi, the seven sages, in India. The two stars at the end of the bowl point to the North Star. The middle star of the handle, Mizar, has a faint partner, Alcor, known as Vasishtha and Arundhati.",
+ Cassiopeia:"Cassiopeia, the Queen, a bright W shape of five stars on the far side of the North Star from the Big Dipper.",
+ Crux:"Crux, the Southern Cross, the smallest of the 88 constellations. From Bhubaneswar it rises just above the southern horizon.",
+ Cygnus:"Cygnus, the Swan, also called the Northern Cross, flying along the Milky Way. The star at its head, Albireo, is a beautiful gold and blue double star in a small telescope.",
+ Leo:"Leo, the Lion. The backwards question mark of stars is the lion's head and mane, with Regulus at its heart.",
+ Pleiades:"The Pleiades, or Seven Sisters, called Krittika in India. It is a cluster of hot young stars about 440 light years away, only around 100 million years old."
+};
+const MW="You are looking along the Milky Way, our own galaxy seen edge on. The faint glow is the light of billions of distant stars.";
+const MWC="You are looking toward the centre of our galaxy, about 26,000 light years away, hidden behind dust clouds. A giant black hole lies there.";
+const targets=[];
+for(const k in INFO){if(CONS[k]){const ks=k==="Pleiades"?["Pleiades"]:[...new Set(CONS[k].flat())];
+   const v=new THREE.Vector3();(k==="Pleiades"?["Alcyone"]:ks).forEach(n=>v.add(starPos[n]));targets.push({k,v:v.normalize(),thr:k==="Pleiades"?6:13,w:1.4});}
+  else targets.push({k,v:starPos[k].clone().normalize(),thr:7,w:1});}
+const vBtn=document.getElementById('voiceBtn'),cap=document.getElementById('caption');
+let voiceOn=true,voice=null,unlocked=false;
+const synth=window.speechSynthesis;
+function pickVoice(){if(!synth)return;const vs=synth.getVoices();voice=vs.find(v=>/en[-_]IN/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;}
+if(synth){pickVoice();synth.onvoiceschanged=pickVoice;}else{vBtn.hidden=true;}
+function unlock(){if(unlocked||!synth)return;unlocked=true;try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;synth.speak(u);}catch(e){}}
+addEventListener('pointerdown',unlock,{capture:true});
+vBtn.onclick=()=>{voiceOn=!voiceOn;vBtn.setAttribute('aria-pressed',voiceOn);if(!voiceOn){synth&&synth.cancel();cap.hidden=true;}else{lastSaid=null;}};
+function speak(t){if(!voiceOn||!synth)return;synth.cancel();const u=new SpeechSynthesisUtterance(t);if(voice)u.voice=voice;u.lang=voice?voice.lang:'en-IN';u.rate=0.95;synth.speak(u);}
+// caption sprite for headset view
+let capSprite=null;scene.add(camera);
+function setCapSprite(text){if(capSprite){camera.remove(capSprite);capSprite.material.map.dispose();capSprite=null;}if(!text)return;
+  capSprite=label(text,0.09,"#ffd9cf");capSprite.material.depthTest=false;capSprite.renderOrder=10;capSprite.center.set(0.5,1.6);capSprite.position.set(0,0,-1);camera.add(capSprite);}
+const ret=new THREE.Mesh(new THREE.RingGeometry(0.008,0.011,32),new THREE.MeshBasicMaterial({color:0xff6a5c,transparent:true,opacity:.7,depthTest:false}));
+ret.position.set(0,0,-1);ret.renderOrder=10;camera.add(ret);
+let cand=null,candT=0,lastSaid=null;const fwd=new THREE.Vector3(),inv=new THREE.Matrix4(),eqv=new THREE.Vector3(),tv=new THREE.Vector3();
+function centred(){camera.getWorldDirection(fwd);
+  if(photo.visible)return null;
+  const groundOn=groundGroup.visible;if(groundOn&&fwd.y<-0.03)return null;
+  let best=null,bs=1;
+  for(const t of targets){tv.copy(t.v).applyMatrix4(sky.matrix).normalize();if(groundOn&&tv.y<0)continue;
+    const ang=Math.acos(Math.min(1,fwd.dot(tv)))/D2R,sc=ang/t.thr/t.w;if(ang<t.thr&&sc<bs){bs=sc;best=t.k;}}
+  if(best)return best;
+  inv.copy(sky.matrix).invert();eqv.copy(fwd).applyMatrix4(inv).normalize();
+  const g=[0,1,2].map(i=>M[i][0]*eqv.x+M[i][1]*eqv.y+M[i][2]*eqv.z);
+  const b=Math.asin(g[2])/D2R,l=Math.atan2(g[1],g[0])/D2R;
+  if(Math.abs(b)<9&&Math.abs(l)<20)return "__MWC";if(Math.abs(b)<9)return "__MW";return null;}
+function narrate(dt){const c=centred();
+  if(c!==cand){cand=c;candT=0;}else candT+=dt;
+  if(cand&&candT>0.9&&cand!==lastSaid){lastSaid=cand;
+    const text=cand==="__MW"?MW:cand==="__MWC"?MWC:INFO[cand];const name=cand==="__MW"?"Milky Way":cand==="__MWC"?"Galactic centre":cand;
+    speak(text);if(voiceOn){cap.textContent=text;cap.hidden=false;setCapSprite(name);}}
+  if(!cand&&candT>1.5&&lastSaid){lastSaid=null;cap.hidden=true;setCapSprite(null);}}
+
 // ---------- loop ----------
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;starMat.uniforms.uTw.value=reduce?0:1;
 const qYaw=new THREE.Quaternion(),Y=new THREE.Vector3(0,1,0),clock=new THREE.Clock();
 renderer.setAnimationLoop(()=>{
-  starMat.uniforms.uT.value=clock.getElapsedTime();
+  const dtN=clock.getDelta();starMat.uniforms.uT.value=clock.elapsedTime;
   if(motionOn&&devQ){qYaw.setFromAxisAngle(Y,yawOff);camera.quaternion.copy(qYaw).multiply(devQ);}
   else camera.quaternion.setFromEuler(new THREE.Euler(pitch,-az,0,'YXZ'));
+  narrate(dtN);if(capSprite)capSprite.visible=stereo;
   const w=innerWidth,h=innerHeight;
   if(stereo){renderer.setScissorTest(true);
     renderer.setScissor(0,0,w/2,h);renderer.setViewport(0,0,w/2,h);renderer.render(scene,camera);

@@ -1,0 +1,289 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>[hidden]{display:none!important}</style></head><body><title>Night Sky VR</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=Chivo+Mono:wght@400&display=swap">
+<style>
+/* Layout: full-bleed sky dome; controls in dim "red flashlight" tones (red light keeps night vision) along the bottom, sky time readout at top. Single dark look by choice. */
+:root{
+  --void:#020308; --panel:rgba(14,6,8,.72); --line:rgba(255,110,95,.22);
+  --ink:#f0c8c0; --dim:#a8776f; --red:#ff6a5c;
+  --f-body:"Barlow Semi Condensed",ui-sans-serif,system-ui,sans-serif;
+  --f-mono:"Chivo Mono",ui-monospace,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--void);color:var(--ink);font-family:var(--f-body)}
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.hud{position:fixed;left:0;right:0;pointer-events:none;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.top{top:0;padding-top:calc(env(safe-area-inset-top,0px) + 12px);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline}
+.bottom{bottom:0;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 12px)}
+.title{font-weight:600;letter-spacing:.16em;text-transform:uppercase;font-size:13px;color:var(--red)}
+.read{font-family:var(--f-mono);font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
+.read b{color:var(--ink);font-weight:400}
+.strip{pointer-events:auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--panel);backdrop-filter:blur(6px);
+  border:1px solid var(--line);border-radius:12px;padding:8px;max-width:760px;margin:0 auto}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:1 1 100%}
+button,.filebtn{font:500 13px var(--f-body);color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;
+  padding:7px 10px;cursor:pointer;white-space:nowrap;letter-spacing:.02em}
+button:hover,.filebtn:hover{border-color:var(--dim)}
+button:focus-visible,input:focus-visible+span,.filebtn:focus-within{outline:2px solid var(--red);outline-offset:2px}
+button[aria-pressed="true"]{background:rgba(255,106,92,.16);border-color:var(--red)}
+.vr{border-color:var(--red);color:var(--red);font-weight:600;text-transform:uppercase;letter-spacing:.1em}
+label.time{font-family:var(--f-mono);font-size:11px;color:var(--dim);display:flex;gap:8px;align-items:center;flex:1 1 220px}
+input[type=range]{accent-color:var(--red);flex:1;min-width:100px}
+.filebtn input{position:absolute;opacity:0;width:1px;height:1px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 150px);background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;max-width:min(90vw,440px);text-align:center;z-index:6}
+#exitVR{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);z-index:5;opacity:.6}
+body.stereo .hud{display:none}
+body.stereo #divider{display:block}
+#divider{display:none;position:fixed;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:#000;z-index:4;pointer-events:none}
+</style>
+
+<canvas id="gl"></canvas>
+<div id="divider"></div>
+
+<div class="hud top">
+  <div class="title">Night Sky · Bhubaneswar 20.3° N</div>
+  <div class="read" id="readout"></div>
+</div>
+
+<div class="hud bottom">
+  <div class="strip">
+    <div class="row">
+      <label class="time" for="tSlider">Time <input id="tSlider" type="range" min="-720" max="720" step="10" value="0"><span id="tOut">+0 h</span></label>
+      <button id="nowBtn">Tonight 9 PM</button>
+    </div>
+    <div class="row">
+      <button id="motionBtn" aria-pressed="false">Look around</button>
+      <button id="alignBtn">Face north + align</button>
+      <button id="linesBtn" aria-pressed="true">Lines</button>
+      <button id="namesBtn" aria-pressed="true">Names</button>
+      <button id="groundBtn" aria-pressed="true">Ground</button>
+      <span class="filebtn"><input id="photoIn" type="file" accept="image/*">Open 360° photo</span>
+      <button id="skyBtn" hidden>Back to sky</button>
+      <button id="fsBtn">Full screen</button>
+      <button id="vrBtn" class="vr">Headset view</button>
+    </div>
+  </div>
+</div>
+<button id="exitVR" hidden>Exit headset view</button>
+<div id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+const LAT=20.30, LON=85.82, R=100, D2R=Math.PI/180;
+
+// ---------- named stars: RA (h), Dec (deg), V mag, colour ----------
+const S={
+ Sirius:[6.752,-16.72,-1.46,"#cfe0ff"],Canopus:[6.399,-52.70,-0.74,"#fffaf0"],Arcturus:[14.261,19.18,-0.05,"#ffcf96"],
+ Vega:[18.616,38.78,0.03,"#d8e6ff"],Capella:[5.278,46.00,0.08,"#fff1c9"],Rigel:[5.242,-8.20,0.13,"#c8dcff"],
+ Procyon:[7.655,5.22,0.34,"#fff8e8"],Betelgeuse:[5.919,7.41,0.50,"#ffa070"],Altair:[19.846,8.87,0.77,"#f2f5ff"],
+ Aldebaran:[4.599,16.51,0.85,"#ffb27a"],Antares:[16.490,-26.43,0.96,"#ff8a60"],Spica:[13.420,-11.16,0.97,"#c6d8ff"],
+ Deneb:[20.690,45.28,1.25,"#f0f4ff"],Regulus:[10.140,11.97,1.35,"#dbe6ff"],Polaris:[2.530,89.26,1.98,"#fff3d6"],
+ Bellatrix:[5.419,6.35,1.64,"#d2e0ff"],Saiph:[5.796,-9.67,2.06,"#cfe0ff"],Alnitak:[5.679,-1.94,1.77,"#d0deff"],
+ Alnilam:[5.604,-1.20,1.69,"#d0deff"],Mintaka:[5.533,-0.30,2.23,"#d0deff"],Meissa:[5.585,9.93,3.33,"#d0deff"],
+ Dubhe:[11.062,61.75,1.79,"#ffd9a8"],Merak:[11.031,56.38,2.37,"#f4f6ff"],Phecda:[11.897,53.69,2.44,"#f4f6ff"],
+ Megrez:[12.257,57.03,3.31,"#f4f6ff"],Alioth:[12.900,55.96,1.77,"#f4f6ff"],Mizar:[13.399,54.93,2.27,"#f4f6ff"],
+ Alkaid:[13.792,49.31,1.86,"#dfe8ff"],Caph:[0.153,59.15,2.27,"#fff5e0"],Schedar:[0.675,56.54,2.24,"#ffd3a0"],
+ GammaCas:[0.945,60.72,2.47,"#dfe8ff"],Ruchbah:[1.430,60.24,2.68,"#f4f6ff"],Segin:[1.907,63.67,3.37,"#dfe8ff"],
+ Acrux:[12.443,-63.10,0.77,"#cddcff"],Mimosa:[12.795,-59.69,1.25,"#cddcff"],Gacrux:[12.519,-57.11,1.59,"#ff9c70"],
+ DeltaCru:[12.252,-58.75,2.79,"#d6e2ff"],Sadr:[20.370,40.26,2.23,"#fff1d8"],Gienah:[20.770,33.97,2.48,"#ffd9a8"],
+ DeltaCyg:[19.750,45.13,2.87,"#e6eeff"],Albireo:[19.512,27.96,3.05,"#ffc890"],Denebola:[11.818,14.57,2.14,"#eef3ff"],
+ Algieba:[10.333,19.84,2.08,"#ffcf96"],Zosma:[11.235,20.52,2.56,"#eef3ff"],Chertan:[11.237,15.43,3.33,"#eef3ff"],
+ Alcyone:[3.791,24.11,2.87,"#cfe0ff"],Atlas:[3.820,24.05,3.62,"#cfe0ff"],Electra:[3.748,24.11,3.70,"#cfe0ff"],
+ Maia:[3.764,24.37,3.87,"#cfe0ff"],Merope:[3.772,23.95,4.18,"#cfe0ff"],Taygeta:[3.754,24.47,4.30,"#cfe0ff"],Pleione:[3.819,24.14,5.05,"#cfe0ff"]
+};
+const NAMED=["Sirius","Canopus","Arcturus","Vega","Capella","Rigel","Procyon","Betelgeuse","Altair","Aldebaran","Antares","Spica","Deneb","Regulus","Polaris"];
+const CONS={
+ Orion:[["Meissa","Betelgeuse"],["Meissa","Bellatrix"],["Betelgeuse","Bellatrix"],["Betelgeuse","Alnitak"],["Bellatrix","Mintaka"],["Alnitak","Alnilam"],["Alnilam","Mintaka"],["Alnitak","Saiph"],["Mintaka","Rigel"]],
+ "Big Dipper":[["Dubhe","Merak"],["Merak","Phecda"],["Phecda","Megrez"],["Megrez","Dubhe"],["Megrez","Alioth"],["Alioth","Mizar"],["Mizar","Alkaid"]],
+ Cassiopeia:[["Caph","Schedar"],["Schedar","GammaCas"],["GammaCas","Ruchbah"],["Ruchbah","Segin"]],
+ Crux:[["Acrux","Gacrux"],["Mimosa","DeltaCru"]],
+ Cygnus:[["Deneb","Sadr"],["Sadr","Albireo"],["DeltaCyg","Sadr"],["Sadr","Gienah"]],
+ Leo:[["Regulus","Algieba"],["Algieba","Zosma"],["Zosma","Denebola"],["Denebola","Chertan"],["Chertan","Regulus"],["Zosma","Chertan"]],
+ Pleiades:[]
+};
+
+function eq(raH,dec,r){const a=raH*15*D2R,d=dec*D2R;return new THREE.Vector3(r*Math.cos(d)*Math.cos(a),r*Math.cos(d)*Math.sin(a),r*Math.sin(d));}
+function rnd(seed){return()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646}}
+const rand=rnd(7);
+function gauss(){let u=0,v=0;while(!u)u=rand();while(!v)v=rand();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+// galactic -> equatorial (J2000): x_eq = M^T x_gal
+const M=[[-0.0548755604,-0.8734370902,-0.4838350155],[0.4941094279,-0.4448296300,0.7469822445],[-0.8676661490,-0.1980763734,0.4559837762]];
+function gal(l,b,r){const g=[Math.cos(b)*Math.cos(l),Math.cos(b)*Math.sin(l),Math.sin(b)];
+  return new THREE.Vector3(r*(M[0][0]*g[0]+M[1][0]*g[1]+M[2][0]*g[2]),r*(M[0][1]*g[0]+M[1][1]*g[1]+M[2][1]*g[2]),r*(M[0][2]*g[0]+M[1][2]*g[1]+M[2][2]*g[2]));}
+
+// ---------- renderer ----------
+const canvas=document.getElementById('gl');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+const PR=Math.min(devicePixelRatio,2);renderer.setPixelRatio(PR);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(70,1,0.1,1000);
+const sky=new THREE.Group();sky.matrixAutoUpdate=false;scene.add(sky);
+
+// ---------- star shader ----------
+const starMat=new THREE.ShaderMaterial({
+  uniforms:{uPx:{value:PR},uGround:{value:1},uT:{value:0},uTw:{value:1}},
+  vertexShader:`attribute float size;attribute vec3 color;attribute float tw;uniform float uPx,uGround,uT,uTw;varying vec3 vC;varying float vA;
+  void main(){vec4 wp=modelMatrix*vec4(position,1.);float alt=wp.y/length(wp.xyz);
+   float ext=mix(1.,smoothstep(-0.005,0.14,alt)*0.85+0.15*step(0.,alt),uGround);ext*=mix(1.,step(0.,alt),uGround);
+   float t=1.+uTw*tw*0.18*sin(uT*(3.+tw*5.)+tw*40.)*(1.2-clamp(alt,0.,1.));
+   vC=color*t;vA=ext;gl_PointSize=size*uPx;gl_Position=projectionMatrix*viewMatrix*wp;}`,
+  fragmentShader:`varying vec3 vC;varying float vA;void main(){float d=length(gl_PointCoord-.5);float a=smoothstep(.5,0.,d);a=a*a+0.9*smoothstep(.2,0.,d);gl_FragColor=vec4(vC*a*vA,1.);}`,
+  transparent:true,depthWrite:false,blending:THREE.AdditiveBlending
+});
+function cloud(list){const n=list.length,p=new Float32Array(n*3),c=new Float32Array(n*3),s=new Float32Array(n),t=new Float32Array(n);
+  list.forEach((o,i)=>{p.set([o.v.x,o.v.y,o.v.z],i*3);c.set([o.c.r,o.c.g,o.c.b],i*3);s[i]=o.s;t[i]=o.t||0;});
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));g.setAttribute('color',new THREE.BufferAttribute(c,3));
+  g.setAttribute('size',new THREE.BufferAttribute(s,1));g.setAttribute('tw',new THREE.BufferAttribute(t,1));return new THREE.Points(g,starMat);}
+function magSize(m){return 2.2+7*Math.pow(10,-0.2*(m+1.5));}
+function magBright(m){return Math.min(1.6,0.28+0.72*Math.pow(10,-0.2*(m-2)));}
+
+// Milky Way glow
+{const pts=[],base=new THREE.Color(0.62,0.68,0.85);
+ while(pts.length<42000){const l=rand()*2*Math.PI;let lw=l>Math.PI?l-2*Math.PI:l;const w=0.3+0.7*Math.exp(-Math.pow(lw/(60*D2R),2));
+  if(rand()>w)continue;const b=gauss()*(3.5+5*w)*D2R;if(Math.abs(lw)<70*D2R&&Math.abs(b)<1.4*D2R&&rand()<0.65)continue;
+  pts.push({v:gal(l,b,R*1.02),c:base.clone().multiplyScalar(0.03+0.035*w*rand()),s:5+rand()*6});}
+ sky.add(cloud(pts));}
+// field stars
+{const pts=[];const hue=[new THREE.Color("#bcd0ff"),new THREE.Color("#e8eeff"),new THREE.Color("#fff4e0"),new THREE.Color("#ffd8a8"),new THREE.Color("#ffbb88")];
+ while(pts.length<6000){const m=6.6+2*Math.log10(rand()||1e-9);if(m<2.4)continue;let v;
+  if(rand()<0.4)v=gal(rand()*2*Math.PI,gauss()*14*D2R,R);else{const u=rand()*2-1,a=rand()*2*Math.PI,s=Math.sqrt(1-u*u);v=new THREE.Vector3(R*s*Math.cos(a),R*s*Math.sin(a),R*u);}
+  pts.push({v,c:hue[(rand()*5)|0].clone().multiplyScalar(magBright(m)),s:magSize(m),t:rand()});}
+ sky.add(cloud(pts));}
+// named stars
+const starPos={};
+{const pts=[];for(const k in S){const [ra,de,m,col]=S[k];const v=eq(ra,de,R);starPos[k]=v;pts.push({v,c:new THREE.Color(col).multiplyScalar(magBright(m)),s:magSize(m)*1.1,t:rand()});}
+ sky.add(cloud(pts));}
+
+// constellation lines + labels
+const lineGroup=new THREE.Group(),nameGroup=new THREE.Group();sky.add(lineGroup);sky.add(nameGroup);
+{const segs=[];for(const c in CONS)CONS[c].forEach(([a,b])=>{const A=starPos[a].clone().multiplyScalar(.995),B=starPos[b].clone().multiplyScalar(.995);segs.push(A.x,A.y,A.z,B.x,B.y,B.z);});
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(segs,3));
+ lineGroup.add(new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0x6d8cc7,transparent:true,opacity:.38,depthWrite:false})));}
+function label(text,h,color,italic){const cv=document.createElement('canvas'),g=cv.getContext('2d'),fs=64;
+  const font=`${italic?'italic ':''}500 ${fs}px "Barlow Semi Condensed", sans-serif`;g.font=font;const w=Math.ceil(g.measureText(text).width)+24;
+  cv.width=w;cv.height=fs*1.4;g.font=font;g.fillStyle=color;g.textBaseline='middle';g.fillText(text,12,cv.height/2);
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),transparent:true,depthWrite:false,depthTest:false,opacity:.85}));
+  sp.scale.set(h*w/cv.height,h,1);return sp;}
+function mkLabels(){nameGroup.clear();
+  for(const c in CONS){const ks=c==="Pleiades"?["Alcyone"]:[...new Set(CONS[c].flat())];const cen=new THREE.Vector3();ks.forEach(k=>cen.add(starPos[k]));cen.normalize().multiplyScalar(R*.97);
+    const sp=label(c==="Pleiades"?"Pleiades":c,3.6,"#8fa9d8",true);sp.position.copy(cen);if(c==="Pleiades")sp.position.add(new THREE.Vector3(0,0,-2.2));nameGroup.add(sp);}
+  NAMED.forEach(k=>{const sp=label(k,2.8,"#e8d6b8");sp.center.set(-0.08,1.1);sp.position.copy(starPos[k]).multiplyScalar(.97);nameGroup.add(sp);});}
+mkLabels();document.fonts&&document.fonts.ready.then(mkLabels);
+
+// ---------- ground, horizon glow, cardinal points ----------
+const groundGroup=new THREE.Group();scene.add(groundGroup);
+groundGroup.add(new THREE.Mesh(new THREE.SphereGeometry(150,64,16,0,Math.PI*2,Math.PI/2,Math.PI/2),new THREE.MeshBasicMaterial({color:0x07080b,side:THREE.BackSide})));
+// tree/roof silhouette along horizon
+{const cv=document.createElement('canvas');cv.width=2048;cv.height=128;const g=cv.getContext('2d');g.fillStyle='#07080b';g.beginPath();g.moveTo(0,128);
+ let y=110;for(let x=0;x<=2048;x+=8){y+=(rand()-.5)*10;y=Math.max(70,Math.min(124,y));if(rand()<.02){g.lineTo(x,y-30-rand()*25);}g.lineTo(x,y);}g.lineTo(2048,128);g.fill();
+ const t=new THREE.CanvasTexture(cv);t.wrapS=THREE.RepeatWrapping;
+ const cyl=new THREE.Mesh(new THREE.CylinderGeometry(140,140,9,128,1,true),new THREE.MeshBasicMaterial({map:t,transparent:true,side:THREE.BackSide,depthWrite:false}));
+ cyl.position.y=2.5;groundGroup.add(cyl);}
+const glow=new THREE.Mesh(new THREE.SphereGeometry(145,64,32),new THREE.ShaderMaterial({side:THREE.BackSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+  vertexShader:`varying vec3 vP;void main(){vP=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader:`varying vec3 vP;void main(){float a=vP.y<0.?0.:exp(-vP.y*9.);gl_FragColor=vec4(vec3(.05,.07,.12)*a,1.);}`}));
+groundGroup.add(glow);
+[["N",0,-1],["E",1,0],["S",0,1],["W",-1,0]].forEach(([t,x,z])=>{const sp=label(t,3.4,"#ff6a5c");sp.position.set(x*95,4,z*95);groundGroup.add(sp);});
+
+// ---------- your own 360 photo ----------
+const photoMat=new THREE.MeshBasicMaterial({color:0xffffff});
+const photoGeo=new THREE.SphereGeometry(400,96,64);photoGeo.scale(-1,1,1);
+const photo=new THREE.Mesh(photoGeo,photoMat);photo.visible=false;scene.add(photo);
+
+// ---------- sky orientation from time ----------
+let baseTime=tonight(),offsetMin=0;
+function tonight(){const d=new Date();const h=d.getHours();if(h>=6&&h<18){d.setHours(21,0,0,0);}return d.getTime();}
+function lstRad(ms){const D=ms/86400000+2440587.5-2451545.0;let g=18.697374558+24.06570982441908*D;g=((g%24)+24)%24;return ((g+LON/15)%24)*15*D2R;}
+const tmpM=new THREE.Matrix4(),rM=new THREE.Matrix4();
+function orientSky(){const L=lstRad(baseTime+offsetMin*60000),p=LAT*D2R;
+  tmpM.makeBasis(new THREE.Vector3(0,Math.cos(p),Math.sin(p)),new THREE.Vector3(1,0,0),new THREE.Vector3(0,Math.sin(p),-Math.cos(p)));
+  rM.set(Math.cos(L),Math.sin(L),0,0, -Math.sin(L),Math.cos(L),0,0, 0,0,1,0, 0,0,0,1);
+  sky.matrix.multiplyMatrices(tmpM,rM);sky.matrixWorldNeedsUpdate=true;
+  const d=new Date(baseTime+offsetMin*60000);
+  document.getElementById('readout').innerHTML=`<b>${d.toLocaleString([], {weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})}</b><br>stars & constellations · no planets or Moon`;}
+const tS=document.getElementById('tSlider'),tO=document.getElementById('tOut');
+tS.oninput=()=>{offsetMin=+tS.value;const h=offsetMin/60;tO.textContent=(h>=0?'+':'')+h.toFixed(1)+' h';orientSky();};
+document.getElementById('nowBtn').onclick=()=>{baseTime=tonight();tS.value=0;tS.oninput();};
+orientSky();
+
+// ---------- toggles ----------
+function toggle(id,fn){const b=document.getElementById(id);b.onclick=()=>{const on=b.getAttribute('aria-pressed')!=='true';b.setAttribute('aria-pressed',on);fn(on);};}
+toggle('linesBtn',on=>lineGroup.visible=on);
+toggle('namesBtn',on=>nameGroup.visible=on);
+toggle('groundBtn',on=>{groundGroup.visible=on;starMat.uniforms.uGround.value=on?1:0;});
+const toast=document.getElementById('toast');let toastT;
+function say(m,ms){toast.textContent=m;toast.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>toast.hidden=true,ms||5500);}
+document.getElementById('photoIn').onchange=e=>{const f=e.target.files[0];if(!f)return;const url=URL.createObjectURL(f);
+  new THREE.TextureLoader().load(url,t=>{photoMat.map&&photoMat.map.dispose();photoMat.map=t;photoMat.needsUpdate=true;photo.visible=true;sky.visible=false;groundGroup.visible=false;
+    document.getElementById('skyBtn').hidden=false;if(Math.abs(t.image.width/t.image.height-2)>0.15)say('This photo is not 2:1, so it may look stretched. 360° photos are usually twice as wide as they are tall.');},
+    undefined,()=>say('That file could not be opened as an image.'));};
+document.getElementById('skyBtn').onclick=()=>{photo.visible=false;sky.visible=true;groundGroup.visible=document.getElementById('groundBtn').getAttribute('aria-pressed')==='true';document.getElementById('skyBtn').hidden=true;};
+
+// ---------- look: drag, pinch, wheel ----------
+let az=90*D2R,pitch=22*D2R,yawOff=0;
+const ptrs=new Map();let pinch0=0;
+canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch0=Math.hypot(a.x-b.x,a.y-b.y);}});
+canvas.addEventListener('pointermove',e=>{const pr=ptrs.get(e.pointerId);if(!pr)return;const k=camera.fov/70*0.005;
+  if(ptrs.size===1){if(motionOn&&devQ)yawOff+=(e.clientX-pr.x)*k;else{az-=(e.clientX-pr.x)*k;pitch=Math.max(-1.5,Math.min(1.5,pitch+(e.clientY-pr.y)*k));}}
+  pr.x=e.clientX;pr.y=e.clientY;
+  if(ptrs.size===2){const [a,b]=[...ptrs.values()],d=Math.hypot(a.x-b.x,a.y-b.y);if(pinch0)setFov(camera.fov*pinch0/d);pinch0=d;}});
+const end=e=>{ptrs.delete(e.pointerId);pinch0=0;};canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);
+canvas.addEventListener('wheel',e=>{e.preventDefault();setFov(camera.fov*Math.exp(e.deltaY*.001));},{passive:false});
+function setFov(f){camera.fov=Math.max(25,Math.min(95,f));camera.updateProjectionMatrix();}
+
+// ---------- look: phone motion ----------
+let motionOn=false,devQ=null,absolute=false;
+const zee=new THREE.Vector3(0,0,1),eul=new THREE.Euler(),q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)),q0=new THREE.Quaternion();
+function onOrient(e){if(e.alpha==null)return;absolute=absolute||e.absolute===true||e.type==='deviceorientationabsolute';
+  const o=((screen.orientation&&screen.orientation.angle)||window.orientation||0)*D2R;
+  eul.set(e.beta*D2R,e.alpha*D2R,-e.gamma*D2R,'YXZ');devQ=(devQ||new THREE.Quaternion()).setFromEuler(eul).multiply(q1).multiply(q0.setFromAxisAngle(zee,-o));}
+const evName=('ondeviceorientationabsolute' in window)?'deviceorientationabsolute':'deviceorientation';
+const mBtn=document.getElementById('motionBtn');
+async function startMotion(){
+  try{if(typeof DeviceOrientationEvent!=='undefined'&&DeviceOrientationEvent.requestPermission){const r=await DeviceOrientationEvent.requestPermission();if(r!=='granted')throw 0;}}
+  catch(e){say('Motion access was refused. Open the downloaded file in Chrome or Safari and tap Allow.');return false;}
+  motionOn=true;mBtn.setAttribute('aria-pressed','true');addEventListener(evName,onOrient);
+  setTimeout(()=>{if(motionOn&&!devQ)say('No motion data reaches this view. Open the downloaded file directly in your phone browser to look around by turning.',7000);
+    else if(motionOn&&!absolute)say('Point your phone north and tap "Face north + align" so the sky lines up with the real one.');},1500);
+  return true;}
+mBtn.onclick=()=>{if(motionOn){motionOn=false;removeEventListener(evName,onOrient);devQ=null;mBtn.setAttribute('aria-pressed','false');}else startMotion();};
+document.getElementById('alignBtn').onclick=()=>{const f=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);const a=Math.atan2(f.x,-f.z);
+  if(motionOn&&devQ)yawOff+=a;else az-=a;say('Aligned: the direction you are facing is now north.',2500);};
+
+// ---------- full screen + headset view ----------
+let stereo=false,wake=null;
+async function goFull(){try{const el=document.documentElement,fn=el.requestFullscreen||el.webkitRequestFullscreen;if(fn){await fn.call(el);return true;}}catch(e){}return false;}
+document.getElementById('fsBtn').onclick=async()=>{if(!(await goFull()))say('Full screen is blocked in this view. Open the downloaded file in your phone browser, or add it to your home screen.');};
+const exitBtn=document.getElementById('exitVR');
+async function setStereo(on){stereo=on;document.body.classList.toggle('stereo',on);exitBtn.hidden=!on;
+  if(on){await goFull();try{await screen.orientation.lock('landscape');}catch(e){}try{wake=await navigator.wakeLock.request('screen');}catch(e){}
+    if(!motionOn)startMotion();}
+  else{try{document.fullscreenElement&&document.exitFullscreen();}catch(e){}try{wake&&wake.release();}catch(e){}}
+  resize();}
+document.getElementById('vrBtn').onclick=()=>setStereo(true);exitBtn.onclick=()=>setStereo(false);
+let lastTap=0;canvas.addEventListener('pointerup',()=>{if(!stereo)return;const t=performance.now();if(t-lastTap<350)setStereo(false);lastTap=t;});
+
+function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=stereo?(w/2)/h:w/h;camera.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+
+// ---------- loop ----------
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;starMat.uniforms.uTw.value=reduce?0:1;
+const qYaw=new THREE.Quaternion(),Y=new THREE.Vector3(0,1,0),clock=new THREE.Clock();
+renderer.setAnimationLoop(()=>{
+  starMat.uniforms.uT.value=clock.getElapsedTime();
+  if(motionOn&&devQ){qYaw.setFromAxisAngle(Y,yawOff);camera.quaternion.copy(qYaw).multiply(devQ);}
+  else camera.quaternion.setFromEuler(new THREE.Euler(pitch,-az,0,'YXZ'));
+  const w=innerWidth,h=innerHeight;
+  if(stereo){renderer.setScissorTest(true);
+    renderer.setScissor(0,0,w/2,h);renderer.setViewport(0,0,w/2,h);renderer.render(scene,camera);
+    renderer.setScissor(w/2,0,w/2,h);renderer.setViewport(w/2,0,w/2,h);renderer.render(scene,camera);renderer.setScissorTest(false);}
+  else{renderer.setViewport(0,0,w,h);renderer.render(scene,camera);}
+});
+})();
+</script>
+</body></html>

@@ -7,13 +7,14 @@ Open **https://kirtimanghosh.github.io/night-sky-vr/** in Chrome on Android, the
 - **Exact sky**: GPS location, live clock or any date/time and speed; precession, nutation and refraction; 41,487 bright stars (HYG, to magnitude 8, moved to the current epoch with proper motions) plus 2,507,225 fainter stars to about magnitude 13–14 (AT-HYG v3.2: Tycho-2 with Gaia DR3), loaded in 10° declination strips as you zoom.
 - **Solar System**: Sun, Moon, Mercury–Neptune and Jupiter's four large moons as lit 3D globes with real surface maps, IAU rotation (correct face toward Earth), true phases, Saturn's rings with ring/globe shadows, Jupiter-moon shadows and eclipses, Great Red Spot at its current longitude, Earth's shadow in lunar eclipses. Comets (Oct 2026–Jan 2027) and active meteor-shower radiants.
 - **Telescope-like zoom** to an 18″ field with sidereal tracking; photographs of 674 nebulae and galaxies placed at their catalogue coordinates.
+- **Freeze**: ❄ Freeze stops the view and lists the named objects in it. Tap or say a number to fly there, or say the name of anything in the sky (planet, Moon, Jupiter's moons, comet, named star, constellation, Messier object such as "M42"; English, বাংলা, हिन्दी or ଓଡ଼ିଆ). If it is below the horizon, the ground is hidden and the app says when it rises.
 - **Views**: plain screen (drag or turn the phone) and split-screen headset view with adjustable lens distance; *Night view* (always dark) or *Actual view* (daylight/twilight as it really is).
 - **Voice and narration** in English, বাংলা, हिन्दी and ଓଡ଼ିଆ (🌐 button on the main bar). Narration is off by default; say **explain / describe** (ব্যাখ্যা করো, समझाओ) to hear about the objects in view, **stop** (থামো, रुको) to end it, **closer / back / home** to zoom. Head tilt right/left also zooms. Constellation lines, nebula outlines and planet paths appear only during an explanation.
 
 ## Files
 | Path | Content |
 |---|---|
-| `index.html`, `app.js`, `i18n.js` | App, rendering, narration texts (en/bn/hi) |
+| `index.html`, `app.js`, `i18n.js` | App, rendering, narration texts (en/bn/hi/or) |
 | `sw.js`, `manifest.webmanifest`, `icon-*.png` | Installable offline web app |
 | `lib/` | three.js r128, Astronomy Engine 2.1.19 |
 | `data/skydata.js` | Stars, constellations, deep-sky objects, nebula image placements |

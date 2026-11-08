@@ -65,6 +65,7 @@ body.stereo #divider{display:block}
   <div class="strip">
     <button id="langBtn" class="big">🌐 English</button>
     <button id="freezeBtn" class="big" aria-pressed="false">❄ Freeze</button>
+    <button id="askBtn" class="big" aria-pressed="false" data-i="ask">💬 Hold to ask</button>
     <button id="zinBtn" class="big" data-i="closer">Closer</button>
     <button id="zoutBtn" class="big" data-i="back">Back</button>
     <button id="voiceCmdBtn" aria-pressed="false" data-i="voice">Voice commands</button>
@@ -115,6 +116,13 @@ body.stereo #divider{display:block}
    <div class="row"><input id="grsIn" type="text" inputmode="decimal" placeholder="auto: 91.0° on 1 Jun 2026, +1.75°/month"></div>
   </div>
   <div class="grp"><h3 data-i="vr">Headset view</h3><div class="row"><label for="ipd"><span data-i="ipd">Lens distance</span> <input id="ipd" type="range" min="50" max="80" step="1"> <b id="ipdOut"></b></label></div></div>
+  <div class="grp" id="aiGrp"><h3 data-i="aiSec">Conversation (AI)</h3>
+   <p class="tip" data-i="aiTip">Hold 💬 and speak naturally in your language. Needs internet and your own key from Google AI Studio (Gemini, has a free tier) or the Anthropic Console (Claude, paid). The key is kept only on this phone. Set a spending limit in your account.</p>
+   <div class="row"><select id="aiProv"><option value="gemini">Gemini (Google)</option><option value="claude">Claude (Anthropic)</option></select><select id="aiModel"></select></div>
+   <div class="row"><input id="aiKey" type="password" autocomplete="off" placeholder="API key" style="flex:1;min-width:0"><button id="aiTest" data-i="aiTest">Test</button></div>
+   <div class="row"><label for="aiAuto"><input id="aiAuto" type="checkbox"> <span data-i="aiAuto">Also send voice-command speech the app doesn't understand to the AI</span></label></div>
+   <span class="tip" id="aiState"></span>
+  </div>
   <div class="grp"><div class="row"><label for="dsoChk"><input id="dsoChk" type="checkbox"> <span data-i="dso">Nebula and galaxy photos</span></label></div></div>
   <div class="grp"><h3 data-i="offline">Offline data</h3>
    <p class="tip" data-i="offTxt"></p>

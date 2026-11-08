@@ -406,9 +406,10 @@ function fillVoices(){if(!synth)return;voices=synth.getVoices();const sel=$('voi
   $('noVoice').hidden=!!sel.options.length;}
 if(synth){fillVoices();synth.onvoiceschanged=fillVoices;}
 let unlocked=false;addEventListener('pointerdown',()=>{if(unlocked||!synth)return;unlocked=true;try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;synth.speak(u);}catch(_){}},{capture:true});
-function speak(text,force){if((!S.narr&&!force)||!synth||!text)return;synth.cancel();const v=bestVoice();
+const spoken=[];let speechEnd=0;   // what the app said recently, so the microphone can ignore it
+function speak(text,force){if((!S.narr&&!force)||!synth||!text)return;synth.cancel();const v=bestVoice();spoken.push({t:performance.now(),text});if(spoken.length>12)spoken.shift();echoSet=null;
   const parts=text.match(/[^.!?।]+[.!?।]?/g)||[text];parts.forEach((s,i)=>{const u=new SpeechSynthesisUtterance(s.trim());if(v)u.voice=v;u.lang=v?v.lang:L().code;u.rate=S.rate;u.pitch=1;
-    if(i===parts.length-1)u.onend=()=>{speakingUntil=performance.now()+700;};synth.speak(u);});}
+    if(i===parts.length-1)u.onend=()=>{speakingUntil=performance.now()+1500;speechEnd=performance.now();};synth.speak(u);});}
 function show(text,name){if(!S.narr&&!showForce)return;cap.textContent=text;cap.hidden=false;setCapSprite(name);}
 let capSprite=null;function setCapSprite(text){if(capSprite){camera.remove(capSprite);dropLabel(capSprite);capSprite=null;}if(!text)return;
   capSprite=label(text,0.09,'#ffd9cf');capSprite.material.depthTest=false;capSprite.renderOrder=10;capSprite.center.set(0.5,1.6);capSprite.position.set(0,0,-1);camera.add(capSprite);}
@@ -515,8 +516,17 @@ function updateWarp(dt){const a=Math.abs(warp);warpLines.visible=a>0.02&&!reduce
 // ---------------- voice commands ----------------
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;const vcBtn=$('voiceCmdBtn'),micState=$('micState');let rec=null,listening=false,lastCmdAt=0,lastCmd='';
 const EN=I18N.en.cmd;
-function heard(text,final){const alts=text.split('|').map(s=>s.toLowerCase().replace(/[.,!?।"]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);if(!alts.length)return false;
+const U2=k=>(L().ui&&L().ui[k])||I18N.en.ui[k]||k;
+let echoSet=null,echoAt=0;
+function isEcho(a){const now=performance.now();if(!echoSet||now-echoAt>2000){echoAt=now;echoSet=new Set();spoken.filter(x=>now-x.t<45000).forEach(x=>nrm(x.text).split(' ').forEach(w=>{if(w)echoSet.add(pkey(w));}));}
+  if(!echoSet.size)return false;const ws=nrm(a).split(' ').filter(Boolean);if(!ws.length)return false;const hits=ws.filter(w=>echoSet.has(pkey(w))).length;
+  const recent=(synth&&synth.speaking)||now<speechEnd+4000;
+  if(ws.length>=2)return hits/ws.length>=(recent?0.5:0.75);   // a phrase made mostly of the app's own recent words
+  return recent&&hits===1;}                                    // a single word the app has just said
+function heard(text,final){let alts=text.split('|').map(s=>s.toLowerCase().replace(/[.,!?।"]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);if(!alts.length)return false;
   const busy=(synth&&synth.speaking)||performance.now()<speakingUntil,C=L().cmd;
+  const isStop=alts.some(a=>C.stop.test(a)||EN.stop.test(a));
+  if(!isStop){const own=alts.filter(isEcho);if(own.length===alts.length){if(final)micState.textContent=U2('echo');return final;}alts=alts.filter(a=>!isEcho(a));}
   if(!busy&&pickByVoice(alts)){micState.textContent='✓ '+alts[0];return true;}
   const order=[['unfreeze',()=>setFreeze(false),false],['freeze',()=>setFreeze(true),false],['stop',()=>{synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);},true],['tell',tellMore,false],['closer',zoomIn,false],['back',zoomOut,false],['home',zoomReset,false]];
   for(const [k,fn,safe] of order){if(busy&&!safe)continue;if(alts.some(a=>C[k].test(a)||EN[k].test(a))){const now=performance.now();if(k===lastCmd&&now-lastCmdAt<2500)return true;lastCmd=k;lastCmdAt=now;

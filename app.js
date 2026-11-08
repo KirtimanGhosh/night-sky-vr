@@ -521,14 +521,27 @@ function heard(text,final){const alts=text.split('|').map(s=>s.toLowerCase().rep
   const order=[['unfreeze',()=>setFreeze(false),false],['freeze',()=>setFreeze(true),false],['stop',()=>{synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);},true],['tell',tellMore,false],['closer',zoomIn,false],['back',zoomOut,false],['home',zoomReset,false]];
   for(const [k,fn,safe] of order){if(busy&&!safe)continue;if(alts.some(a=>C[k].test(a)||EN[k].test(a))){const now=performance.now();if(k===lastCmd&&now-lastCmdAt<2500)return true;lastCmd=k;lastCmdAt=now;
       if(k!=='stop')synth&&synth.cancel();fn();micState.textContent='✓ '+alts[0];if(stereo&&k!=='tell')setCapSprite('✓');return true;}}
-  if(final&&!busy&&S.aiAuto!==false&&(S.aiKey||'').trim()&&alts[0].split(' ').length>=2&&typeof aiAsk==='function'){aiAsk(alts[0]);return true;}
+  if(final){const fz=fuzzyHeard(alts,busy);if(fz)return true;}
   if(final)micState.textContent=T('heard',{w:alts[0]});return false;}
+function fuzzyHeard(alts,busy){
+  // commands: only for short phrases (up to 4 words), so ordinary talk does not trigger them
+  const fc=fuzzyBest(alts,cmdCands(),4);
+  // names: only while the view is frozen (same as exact names)
+  const fn=frozen&&!busy?fuzzyBest(alts,nameCands(),0):null;
+  let b=fc&&(!fn||fc.sc>=fn.sc)?fc:fn;if(!b)return false;
+  if(busy&&!(b.c.kind==='cmd'&&b.c.target==='stop'))return false;
+  if(b.amb){const nm=x=>x.c.kind==='cmd'?x.c.raw:(x.c.target.make()||{}).name;micState.textContent='? '+nm(b)+' / '+nm(b.amb);say(T('didYouMean',{a:nm(b),b:nm(b.amb)}),4000);return true;}
+  if(b.c.kind==='cmd'){const k=b.c.target;const fns={unfreeze:()=>{if(frozen)setFreeze(false);},freeze:()=>{if(!frozen)setFreeze(true);},stop:()=>{synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);},tell:tellMore,closer:zoomIn,back:zoomOut,home:zoomReset};
+    const now=performance.now();if(k===lastCmd&&now-lastCmdAt<2500)return true;lastCmd=k;lastCmdAt=now;if(k!=='stop')synth&&synth.cancel();fns[k]();micState.textContent='≈ '+b.heard+' → '+k+' ('+Math.round(Math.min(1,b.sc)*100)+'%)';return true;}
+  const it=b.c.target.make();if(!it)return false;const now=performance.now();if(it.name===lastGoto&&now-lastGotoAt<3000)return true;lastGoto=it.name;lastGotoAt=now;
+  const alt=tv.copy(it.v).applyMatrix4(sky.matrix).y;if(alt<0){it.pre=riseText(it);groundTemp(true);}synth&&synth.cancel();flyToItem(it);
+  micState.textContent='≈ '+b.heard+' → '+it.name+' ('+Math.round(Math.min(1,b.sc)*100)+'%)';return true;}
 let restartT=null;
 function startRec(){if(!SR){say('Speech recognition is not available in this browser.',7000);return;}try{if(rec){rec.onend=null;rec.abort();}}catch(_){}
-  rec=new SR();rec.lang=L().code;rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=4;rec.onstart=()=>micState.textContent=L().ui.listening;
+  rec=new SR();rec.lang=L().code;rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=5;const bp=biasPhrases();if(bp){try{rec.phrases=bp;}catch(_){noPhrases=true;}}rec.onstart=()=>micState.textContent=L().ui.listening;
   let doneIdx=-1;rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++){if(i<=doneIdx)continue;const r=e.results[i];if(heard([...r].map(a=>a.transcript).join(' | '),r.isFinal))doneIdx=i;}};
   rec.onerror=e=>{const m={'not-allowed':'Microphone blocked: allow the microphone for this app, then tap Voice commands again.','service-not-allowed':'Speech service blocked on this phone.','audio-capture':'No microphone found.','network':'Voice commands need an internet connection.','language-not-supported':'This language is not supported for voice commands on this phone.'}[e.error];
-    if(m){listening=false;vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;say(m,8000);}};
+    if(e.error==='phrases-not-supported'){noPhrases=true;return;}if(m){listening=false;vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;say(m,8000);}};
   rec.onend=()=>{if(!listening){micState.textContent=L().ui.off;return;}clearTimeout(restartT);restartT=setTimeout(()=>{try{listening&&startRec();}catch(_){}},300);};
   try{rec.start();if(!listening)say(L().cmdWords.join(' · '),4000);listening=true;vcBtn.setAttribute('aria-pressed','true');}catch(e){say('Voice commands could not start.');}}
 vcBtn.onclick=()=>{if(listening){listening=false;try{rec.abort();}catch(e){}vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;}else startRec();};
@@ -586,16 +599,18 @@ function groundTemp(off){if(off&&S.ground){S.ground=false;groundHidden=true;}els
 const LOCD='০১২৩৪৫৬৭৮৯०१२३४५६७८९୦୧୨୩୪୫୬୭୮୯';
 function nrm(x){return String(x).toLowerCase().replace(/[০-৯०-९୦-୯]/g,c=>String(LOCD.indexOf(c)%10)).replace(/[´’'`\-\/(),.:;!?।"]/g,' ').replace(/\s+/g,' ').trim();}
 let NAMEIDX=null;
+const ALIAS={Saturn:['satan','saturn planet'],Jupiter:['jupyter'],Moon:['the moon','chand','chanda','চাঁদ','চন্দ্র','चाँद','चांद','चंद्रमा','ଜହ୍ନ','ଚନ୍ଦ୍ର'],Sun:['surya','সূর্য','सूरज','सूर्य','�ସୂର୍ଯ୍ୟ'],
+  Mars:['mangal','মঙ্গল','मंगल','ମଙ୍ଗଳ'],Venus:['shukra','শুক্র','शुक्र','ଶୁକ୍ର'],Mercury:['budh','বুধ','बुध','ବୁଧ'],Polaris:['pole star','north star','dhruva tara','dhruv tara'],Sirius:['dog star']};
 function buildNameIdx(){const E=[],LS=Object.keys(I18N);
   const add=(keys,make,min)=>{const ks=new Set();keys.forEach(k=>{if(!k)return;const parts=[k,...String(k).split(/[()]/)];parts.forEach(q=>{q=nrm(q);if(q.length>=(min||3)&&!/^\d+$/.test(q))ks.add(q);});});if(ks.size)E.push({keys:[...ks],make});};
-  PL.forEach(p=>add(LS.flatMap(l=>[I18N[l].planet&&I18N[l].planet[p.k],I18N[l].label&&I18N[l].label[p.k]]).concat([p.k]),()=>p.v&&{name:L().label[p.k]||L().planet[p.k],v:p.v.clone(),fov:Math.max(p.ang*2/D2R*(p.k==='Saturn'?6:4),0.006),info:()=>bodyText(p),body:p.k}));
+  PL.forEach(p=>add(LS.flatMap(l=>[I18N[l].planet&&I18N[l].planet[p.k],I18N[l].label&&I18N[l].label[p.k]]).concat([p.k],ALIAS[p.k]||[]),()=>p.v&&{name:L().label[p.k]||L().planet[p.k],v:p.v.clone(),fov:Math.max(p.ang*2/D2R*(p.k==='Saturn'?6:4),0.006),info:()=>bodyText(p),body:p.k}));
   GAL.forEach(g=>add(LS.map(l=>I18N[l].planet&&I18N[l].planet[g.k]).concat([g.k]),()=>g.v&&{name:L().planet[g.k],v:g.v.clone(),fov:0.03,info:()=>galText(g),body:'Jupiter'}));
   comets.forEach(cm=>{const base=cm.n.includes('(')?cm.n.replace(/.*\((.*)\).*/,'$1'):cm.n.replace(/^[^\/]*\//,'').replace(/ \d+$/,'');
     add([base,'comet '+base,cm.n.replace(/\//,' ')],()=>cm.ok&&{name:cm.n.replace(/ \(.*\)/,''),v:cm.v.clone(),fov:0.5,info:()=>cometText(cm)},3);});
   DSO.forEach(o=>{const id=nrm(o.id),ks=[o.id,id.replace(/ /g,''),o.alt];const m=/^m(\d+)$/.exec(id);if(m)ks.push('messier '+m[1]);if(o.alt==='Andromeda')ks.push('Andromeda galaxy');if(o.alt==='Pleiades')ks.push('কৃত্তিকা','कृत्तिका','କୃତ୍ତିକା','seven sisters');
     add(ks,()=>({name:o.id+(o.alt?' '+o.alt:''),v:o.v.clone(),fov:Math.min(30,Math.max(o.dim/60*1.8,0.25)),info:()=>dsoDesc(o)}),2);});
   for(let i=0;i<INFO.length;i++){const n=INFO[i][0];if(!n||n.length<4||/^\d/.test(n))continue;const ii=i;
-    add([n].concat(LS.map(l=>I18N[l].star&&I18N[l].star[n])),()=>({name:starProper(n),v:new THREE.Vector3(sV[ii*3],sV[ii*3+1],sV[ii*3+2]).normalize(),fov:1,info:()=>starDesc(ii)}),4);}
+    add([n].concat(LS.map(l=>I18N[l].star&&I18N[l].star[n]),ALIAS[n]||[]),()=>({name:starProper(n),v:new THREE.Vector3(sV[ii*3],sV[ii*3+1],sV[ii*3+2]).normalize(),fov:1,info:()=>starDesc(ii)}),4);}
   const CAL={UMa:['great bear','big dipper','saptarishi'],UMi:['little bear','little dipper'],Cru:['southern cross'],Sco:['scorpion'],Leo:['lion'],Tau:['bull'],Gem:['twins'],Cnc:['crab'],Lib:['scales'],Sgr:['archer','teapot'],Cap:['capricorn','sea goat'],Aqr:['water bearer'],Psc:['fishes'],Ari:['ram'],Cyg:['swan','northern cross'],Lyr:['lyre'],Aql:['eagle'],Ori:['hunter'],CMa:['great dog'],CMi:['little dog'],Peg:['winged horse']};
   for(const k in CONS){if(!consCen[k])continue;const en=CONS[k][0];
     add([en,en+' constellation','constellation '+en,CONS[k][2]].concat(CAL[k]||[]).concat(LS.map(l=>I18N[l].con&&I18N[l].con[k])),()=>({name:conName(k),v:consCen[k].clone(),fov:35,info:()=>consDesc(k)}),4);}
@@ -618,106 +633,63 @@ function pickByVoice(alts){if(!frozen)return false;
   for(const a of alts){for(let i=0;i<pickItems.length;i++){const n=String(i+1);if(new RegExp('(^|\\s)('+n+'|'+ne[i]+(nw[i]?'|'+nw[i]:'')+(dg?'|'+dg[i+1]:'')+')(\\s|$)').test(a)){flyTo(i);return true;}}}
   return false;}
 
-// ---------------- AI conversation (cloud model, user's own key, stored only on this phone) ----------------
-const U=k=>(L().ui&&L().ui[k])||I18N.en.ui[k]||k;
-let aiHist=[],aiBusy=false,aiLast=null,aiLastAt=0;
-const LNAME={en:'English',bn:'Bengali (বাংলা script)',hi:'Hindi (Devanagari script)',or:'Odia (ଓଡ଼ିଆ script)'};
-const aiV=new THREE.Vector3();
-function altDeg(v){return Math.asin(Math.max(-1,Math.min(1,aiV.copy(v).normalize().applyMatrix4(sky.matrix).normalize().y)))/D2R;}
-function compass(v){const w=aiV.copy(v).normalize().applyMatrix4(sky.matrix);const az=(Math.atan2(w.x,-w.z)/D2R+360)%360;return ['north','north-east','east','south-east','south','south-west','west','north-west'][Math.round(az/45)%8];}
-function aiContext(){const keep=S.lang;S.lang='en';let out=[];
- try{const c=frozen&&frozenEq?frozenEq.clone():centreEq().clone();
-  out.push('Place: '+S.place+' ('+S.lat.toFixed(2)+'N, '+S.lon.toFixed(2)+'E). Sky time: '+simDate.toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})+'.');
-  out.push('View: looking '+compass(c)+', '+Math.round(altDeg(c))+' degrees above the horizon, field of view '+(camera.fov>=1?camera.fov.toFixed(1)+' degrees':(camera.fov*60).toFixed(1)+' arcminutes')+'. View is '+(frozen?'frozen':'not frozen')+'.');
-  if(aiLast)out.push('Object shown last: '+aiLast.name+'. Facts: '+aiLast.info());
-  const vi=viewItems();if(vi.length)out.push('Named objects in the current view (numbered): '+vi.map((it,i)=>(i+1)+' '+it.name).join('; '));
-  out.push('\nSOLAR SYSTEM (name | altitude deg, negative = below horizon | direction | facts):');
-  PL.forEach(p=>{if(p.v)out.push(p.k+' | '+Math.round(altDeg(p.v))+' | '+compass(p.v)+' | '+bodyText(p));});
-  GAL.forEach(g=>{if(g.v)out.push(g.k+' (moon of Jupiter) | '+Math.round(altDeg(g.v))+' | '+compass(g.v)+' | '+galText(g));});
-  comets.forEach(cm=>{if(cm.ok)out.push(cm.n+' (comet) | '+Math.round(altDeg(cm.v))+' | '+compass(cm.v)+' | '+cometText(cm));});
-  const st=[];for(let i=0;i<INFO.length;i++){if(!INFO[i][0]||sMag[i]>2.2)continue;const sv=new THREE.Vector3(sV[i*3],sV[i*3+1],sV[i*3+2]);const a=altDeg(sv);if(a<0)continue;st.push(INFO[i][0]+' (alt '+Math.round(a)+', '+compass(sv)+', mag '+sMag[i].toFixed(1)+(INFO[i][5]?', '+Math.round(INFO[i][5])+' ly':'')+')');}
-  out.push('\nBRIGHT NAMED STARS ABOVE THE HORIZON: '+st.join('; '));
-  const ds=DSO.filter(o=>altDeg(o.v)>0).map(o=>o.id+(o.alt?' '+o.alt:'')+' ('+(L().type[o.type]||o.type)+(o.mag?', mag '+o.mag:'')+')');
-  out.push('\nDEEP-SKY OBJECTS ABOVE THE HORIZON: '+ds.join('; '));
-  const cs=[];for(const k in consCen){if(altDeg(consCen[k])>5)cs.push(CONS[k][0]);}out.push('\nCONSTELLATIONS ABOVE THE HORIZON: '+cs.join(', '));
- }finally{S.lang=keep;}
- return out.join('\n');}
-function aiSystem(){return `You are the voice of "Night Sky VR", a phone app that shows the real sky for the user's place and time. The user speaks to you (speech recognition may mishear words; guess the most likely meaning, e.g. "satan" = Saturn, "andromida" = Andromeda).
-Choose ONE action and write what to say. Reply with ONLY a JSON object:
-{"action": one of "goto","describe","zoom_in","zoom_out","home","freeze","unfreeze","answer","ask","none",
- "target": object name or "" ,
- "say": short reply}
-Actions: goto = turn to an object and zoom on it (works even if it is below the horizon); describe = tell about an object (or the current view if target is ""); zoom_in / zoom_out = move closer / farther; home = whole sky; freeze / unfreeze the view; answer = just answer a question; ask = ask the user to choose (list the choices in "say"); none = nothing to do.
-Rules:
-- target: use the English name exactly as in the lists below, a Messier/NGC id like "M42", a named star, or a constellation name. The app also knows about 350 named stars and all 88 constellations even if not listed.
-- "a comet", "a galaxy", "a red star", "a planet" etc.: choose from the lists using the type, prefer objects above the horizon; for comets prefer the brightest (smallest magnitude).
-- If several objects fit and the choice matters, use "ask". "It", "that", "there" mean the object shown last.
-- Facts: use ONLY the facts given below. If you do not have a fact, say you do not know. Never invent numbers, dates or distances.
-- If the user asks for something the app cannot show (e.g. a pulsar, a black hole, the ISS), say so briefly (action "none" or "answer").
-- For goto and describe the app itself will speak the verified details, so keep "say" to a few words (e.g. "Here is Saturn.").
-- For answer/ask: one to three short spoken sentences. No lists, no markdown.
-- Write "say" in ${LNAME[S.lang]||'English'}, natural and friendly.
+// ---------------- fuzzy voice matching: exact words first, then close variations ----------------
+// Devanagari (Hindi), Bengali and Odia share one Unicode layout, so one table turns all three into rough Latin sounds.
+const INDV={0x05:'a',0x06:'a',0x07:'i',0x08:'i',0x09:'u',0x0A:'u',0x0B:'ri',0x0F:'e',0x10:'ai',0x13:'o',0x14:'au'};
+const INDM={0x3E:'a',0x3F:'i',0x40:'i',0x41:'u',0x42:'u',0x43:'ri',0x47:'e',0x48:'ai',0x4B:'o',0x4C:'au'};
+const INDC={0x15:'k',0x16:'kh',0x17:'g',0x18:'gh',0x19:'ng',0x1A:'ch',0x1B:'chh',0x1C:'j',0x1D:'jh',0x1E:'ny',0x1F:'t',0x20:'th',0x21:'d',0x22:'dh',0x23:'n',0x24:'t',0x25:'th',0x26:'d',0x27:'dh',0x28:'n',
+ 0x2A:'p',0x2B:'ph',0x2C:'b',0x2D:'bh',0x2E:'m',0x2F:'y',0x30:'r',0x32:'l',0x33:'l',0x35:'v',0x36:'sh',0x37:'sh',0x38:'s',0x39:'h',0x4E:'t',0x58:'k',0x59:'kh',0x5A:'g',0x5B:'z',0x5C:'r',0x5D:'rh',0x5E:'f',0x5F:'y',0x71:'w'};
+const NUKTA={d:'r',dh:'rh',j:'z',ph:'f',k:'k',kh:'kh',g:'g',y:'y'};
+function translit(s){let o='',pend=false,last='';
+  for(const ch of s){const c=ch.codePointAt(0);const base=c>=0x900&&c<0x980?0x900:c>=0x980&&c<0xA00?0x980:c>=0xB00&&c<0xB80?0xB00:0;
+    if(!base){if(pend){o+='a';pend=false;}o+=ch;last='';continue;}const f=c-base;
+    if(INDC[f]){if(pend)o+='a';o+=INDC[f];last=INDC[f];pend=true;continue;}
+    if(INDM[f]){o+=INDM[f];pend=false;continue;}
+    if(f===0x4D){pend=false;continue;}                       // virama: no vowel
+    if(f===0x3C){if(NUKTA[last]){o=o.slice(0,o.length-last.length)+NUKTA[last];last=NUKTA[last];}continue;} // nukta
+    if(pend){o+='a';pend=false;}
+    if(INDV[f])o+=INDV[f];else if(f>=1&&f<=2)o+='n';else if(f===3)o+='h';else if(f>=0x66&&f<=0x6F)o+=String(f-0x66);}
+  return o;}   // a final inherent "a" is dropped, as in speech (শনি → shani, ধ্রুব → dhruv)
+// sound key: similar sounds merged, vowels reduced to a / i / u, doubled letters collapsed
+function pkey(w){w=translit(String(w).normalize('NFC').toLowerCase()).replace(/[^a-z0-9]/g,'');
+  w=w.replace(/ph/g,'f').replace(/ck/g,'k').replace(/q/g,'k').replace(/x/g,'ks').replace(/g(?=[eiy])/g,'j').replace(/c(?=[eiy])/g,'s').replace(/sch/g,'sk').replace(/ch/g,'C').replace(/c/g,'k').replace(/sh/g,'s')
+   .replace(/([bCdfgjklmnprstvz])h/g,'$1').replace(/z/g,'j').replace(/w/g,'v').replace(/v/g,'b').replace(/[eiy]/g,'i').replace(/[ou]/g,'u').replace(/(.)\1+/g,'$1');
+  return w;}
+const skel=k=>k.length?k[0]+k.slice(1).replace(/[aiu]/g,''):'';
+function dl(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;const d=[];for(let i=0;i<=m;i++){d[i]=[i];}for(let j=0;j<=n;j++)d[0][j]=j;
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++){const c=a[i-1]===b[j-1]?0:1;let v=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+c);if(i>1&&j>1&&a[i-1]===b[j-2]&&a[i-2]===b[j-1])v=Math.min(v,d[i-2][j-2]+1);d[i][j]=v;}return d[m][n];}
+// how close a heard piece is to a known word (0..1); short words must match exactly
+function closeness(hk,hs,ck,cs,strict){if(hk===ck)return 1;const L=Math.max(hk.length,ck.length);if(L<=4||Math.abs(hk.length-ck.length)>3)return 0;
+  const sim=1-dl(hk,ck)/L;let s=sim>=(strict?0.85:L<=5?0.75:0.74)?sim:0;
+  if(!strict&&cs.length>=3&&sim>=0.5){const ss=hs===cs?1:1-dl(hs,cs)/Math.max(hs.length,cs.length);if(ss>=0.8)s=Math.max(s,0.72+0.2*ss*sim);}
+  return s;}
+function mkCand(phrase,target,kind){const ws=nrm(phrase).split(' ').filter(Boolean);const k=ws.map(pkey).join('');return {raw:nrm(phrase),n:ws.length,k,s:skel(k),target,kind};}
+// command phrases in all four languages (plus a few spoken variants)
+const CMDP={closer:['closer','closure','go closer','come closer','nearer','forward','zoom in','magnify'],back:['back','go back','backward','farther','further','zoom out'],home:['home','reset','full sky','whole sky'],
+  tell:['explain','describe','description','tell me','details','information','what is this'],stop:['stop','quiet','silence','enough','থামাও','থামো তো','रुकिये','रुक जाओ'],freeze:['freeze','freeze view','lock view'],unfreeze:['unfreeze','release','unlock','resume']};
+let CMDC=null,NAMEC=null;
+function cmdCands(){if(CMDC)return CMDC;CMDC=[];for(const k in CMDP)CMDP[k].forEach(p=>CMDC.push(mkCand(p,k,'cmd')));
+  ['bn','hi','or'].forEach(l=>{const C=I18N[l].cmd;for(const k in C)String(C[k].source).replace(/\\b[^|)]*/g,'').replace(/[()]/g,'').split('|').map(x=>x.trim()).filter(x=>x&&!/[a-z]/.test(x)).forEach(p=>CMDC.push(mkCand(p,k,'cmd')));});
+  return CMDC;}
+function nameCands(){if(NAMEC)return NAMEC;if(!NAMEIDX)NAMEIDX=buildNameIdx();NAMEC=[];NAMEIDX.forEach(e=>e.keys.forEach(k=>{if(!/^(m|ngc|ic) ?\d/.test(k))NAMEC.push(mkCand(k,e,'name'));}));return NAMEC;}
+// best match over all recogniser alternatives and all word windows
+function fuzzyBest(alts,cands,maxWords){let best=null,second=null;
+  alts.forEach((a,ai)=>{const ws=nrm(a).split(' ').filter(Boolean);if(!ws.length||(maxWords&&ws.length>maxWords))return;const wk=ws.map(pkey),wsk=wk.map(skel);const rank=1-ai*0.03;
+    for(const c of cands){for(let len=Math.max(1,c.n-1);len<=c.n+1;len++)for(let i=0;i+len<=ws.length;i++){const hk=wk.slice(i,i+len).join('');const hs=skel(hk);
+      let sc=closeness(hk,hs,c.k,c.s,c.kind==='cmd');if(!sc)continue;if(ws.slice(i,i+len).join(' ')===c.raw)sc+=0.02;sc*=rank;
+      if(!best||sc>best.sc){if(best&&best.c.target!==c.target)second=best;best={sc,c,heard:ws.slice(i,i+len).join(' ')};}else if(best.c.target!==c.target&&(!second||sc>second.sc))second={sc,c};}}});
+  if(!best)return null;best.amb=second&&second.sc>best.sc-0.04&&best.sc<0.97?second:null;return best;}
+let noPhrases=false;
+function biasPhrases(){if(noPhrases||!window.SpeechRecognitionPhrase)return null;const set=new Set();const l=L();
+  Object.values(CMDP).flat().forEach(p=>set.add(p));(l.cmdWords||[]).forEach(p=>set.add(p));
+  PL.concat(GAL).forEach(p=>{set.add(p.k);if(l.planet&&l.planet[p.k])set.add(l.planet[p.k]);});
+  for(const k in consCen){set.add(CONS[k][0]);if(l.con&&l.con[k])set.add(l.con[k]);}
+  if(l.star)Object.values(l.star).forEach(n=>set.add(n.split(' (')[0]));
+  try{return [...set].slice(0,300).map(p=>new SpeechRecognitionPhrase(p,3));}catch(_){noPhrases=true;return null;}}
 
-CURRENT SKY:
-${aiContext()}`;}
-async function aiCall(sys,msgs){const key=(S.aiKey||'').trim();if(!key)throw new Error(U('aiNoKey'));
- if(S.aiProv==='claude'){const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:S.aiModel||'claude-haiku-5-5',max_tokens:500,temperature:0.3,system:sys,messages:msgs})});const j=await r.json().catch(()=>({}));
-  if(!r.ok)throw new Error((j.error&&j.error.message)||('HTTP '+r.status));return (j.content||[]).map(c=>c.text||'').join('');}
- const model=S.aiModel||await aiModels(true);
- const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},
-   body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:msgs.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]})),generationConfig:{temperature:0.3,maxOutputTokens:2048,responseMimeType:'application/json'}})});
- const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
- return ((j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts)||[]).map(p=>p.text||'').join('');}
-async function aiModels(pickOnly){const key=(S.aiKey||'').trim();let names=[];
- if(S.aiProv==='claude'){const r=await fetch('https://api.anthropic.com/v1/models?limit=100',{headers:{'x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}});const j=await r.json().catch(()=>({}));
-  if(!r.ok)throw new Error((j.error&&j.error.message)||('HTTP '+r.status));names=(j.data||[]).map(m=>m.id);if(pickOnly){const b=names.find(n=>/haiku/.test(n))||names[0];if(b){S.aiModel=b;save();}return b;}return names;}
- const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',{headers:{'x-goog-api-key':key}});const j=await r.json().catch(()=>({}));
- if(!r.ok)throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
- names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/','')).filter(n=>/^gemini/.test(n)&&!/image|tts|audio|live|embed|vision|thinking|exp/.test(n));
- const ver=n=>parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/)||[])[1]||0);
- names.sort((a,b)=>(/preview/.test(a)-/preview/.test(b))||(ver(b)-ver(a))||((/lite/.test(a))-(/lite/.test(b))));
- const best=names.find(n=>/flash/.test(n)&&!/lite/.test(n))||names.find(n=>/flash/.test(n))||names[0];
- if(pickOnly){if(best){S.aiModel=best;save();}return best;}return names;}
-function aiParse(txt){const m=(txt||'').match(/\{[\s\S]*\}/);if(m){try{const o=JSON.parse(m[0]);if(o&&typeof o==='object')return o;}catch(_){}}return {action:'answer',target:'',say:(txt||'').replace(/[{}"]/g,'').trim()};}
-function aiSay(text){if(!text)return;showForce=true;show(text,'💬');showForce=false;speak(text,true);}
+setTimeout(()=>{try{cmdCands();nameCands();}catch(_){}},4000);   // build the word lists in advance
 function gotoName(name){if(!name)return false;const e=findName([name]);const it=e&&e.make();if(!it)return false;if(!frozen)setFreeze(true,true);
- const alt=tv.copy(it.v).applyMatrix4(sky.matrix).y;if(alt<0){it.pre=riseText(it);groundTemp(true);}synth&&synth.cancel();flyToItem(it);aiLast=it;return true;}
-async function aiAsk(text){text=(text||'').trim();if(!text||aiBusy)return;if(!(S.aiKey||'').trim()){say(U('aiNoKey'),5000);return;}
- aiBusy=true;synth&&synth.cancel();showForce=true;show('“'+text+'”  …','💬');showForce=false;micState.textContent='💬 '+U('aiThink');
- const msgs=[...aiHist.slice(-8),{role:'user',content:text}];
- try{const raw=await aiCall(aiSystem(),msgs);const o=aiParse(raw);aiHist.push({role:'user',content:text},{role:'assistant',content:JSON.stringify(o)});
-  const a=o.action,tg=(o.target||'').trim();
-  if(a==='goto'){if(!gotoName(tg))aiSay(o.say||T('heard',{w:tg}));}
-  else if(a==='describe'){if(!(tg&&gotoName(tg)))tellMore();}
-  else if(a==='zoom_in')zoomIn();else if(a==='zoom_out')zoomOut();else if(a==='home'){if(frozen)setFreeze(false);zoomReset();}
-  else if(a==='freeze'){if(!frozen)setFreeze(true);}else if(a==='unfreeze'){if(frozen)setFreeze(false);}
-  else aiSay(o.say);
-  micState.textContent='✓ 💬';}
- catch(e){say(U('aiErr')+e.message,8000);micState.textContent=U('off');}
- aiBusy=false;}
-// hold-to-talk button
-const askBtn=$('askBtn');let askRec=null,askText='',voiceWasOn=false;
-function askStart(e){e.preventDefault();if(!SR){say('Speech recognition is not available in this browser.',6000);return;}if(!(S.aiKey||'').trim()){say(U('aiNoKey'),5000);$('sheet').hidden=false;setTimeout(()=>$('aiGrp').scrollIntoView({block:'center'}),50);return;}
- if(askRec)return;synth&&synth.cancel();voiceWasOn=listening;if(listening){listening=false;try{rec.abort();}catch(_){}}
- askText='';askRec=new SR();askRec.lang=L().code;askRec.interimResults=true;askRec.continuous=true;
- askRec.onresult=ev=>{askText=[...ev.results].map(r=>r[0].transcript).join(' ');micState.textContent='💬 '+askText;};
- askRec.onerror=ev=>{if(ev.error!=='aborted'&&ev.error!=='no-speech')say('Mic: '+ev.error,4000);};
- askRec.onend=()=>{askRec=null;askBtn.setAttribute('aria-pressed','false');askBtn.textContent=U('ask');const t=askText;if(t.trim())aiAsk(t);if(voiceWasOn)setTimeout(startRec,400);};
- try{askRec.start();askBtn.setAttribute('aria-pressed','true');askBtn.textContent=U('askHold');}catch(_){askRec=null;}}
-function askStop(e){e&&e.preventDefault();if(askRec)try{askRec.stop();}catch(_){}}
-askBtn.addEventListener('pointerdown',askStart);['pointerup','pointercancel','pointerleave'].forEach(ev=>askBtn.addEventListener(ev,askStop));askBtn.addEventListener('contextmenu',e=>e.preventDefault());
-// settings
-(function(){const pv=$('aiProv'),ky=$('aiKey'),md=$('aiModel'),au=$('aiAuto'),stt=$('aiState');pv.value=S.aiProv||'gemini';ky.value=S.aiKey||'';au.checked=S.aiAuto!==false;
- const fillM=list=>{md.innerHTML='';const o=document.createElement('option');o.value='';o.textContent='Automatic';md.appendChild(o);(list||[]).forEach(n=>{const x=document.createElement('option');x.value=n;x.textContent=n;md.appendChild(x);});if(S.aiModel&&!(list||[]).includes(S.aiModel)){const x=document.createElement('option');x.value=S.aiModel;x.textContent=S.aiModel;md.appendChild(x);}md.value=S.aiModel||'';};
- fillM([]);
- pv.onchange=()=>{S.aiProv=pv.value;S.aiModel='';save();fillM([]);stt.textContent='';};
- ky.onchange=()=>{S.aiKey=ky.value.trim();save();stt.textContent='';};md.onchange=()=>{S.aiModel=md.value;save();};au.onchange=()=>{S.aiAuto=au.checked;save();};
- $('aiTest').onclick=async()=>{S.aiKey=ky.value.trim();save();stt.textContent='…';const t0=performance.now();
-  try{const list=await aiModels(false);fillM(list);if(!S.aiModel)await aiModels(true);md.value=S.aiModel||'';
-   const raw=await aiCall('Reply with only this JSON: {"ok":true,"say":"<a short greeting in '+(LNAME[S.lang]||'English')+'>"}',[{role:'user',content:'Hello'}]);
-   const o=aiParse(raw);stt.textContent='✓ '+(S.aiModel||'')+' · '+((performance.now()-t0)/1000).toFixed(1)+' s · '+(o.say||'');}
-  catch(e){stt.textContent='✗ '+e.message;}};})();
+ const alt=tv.copy(it.v).applyMatrix4(sky.matrix).y;if(alt<0){it.pre=riseText(it);groundTemp(true);}synth&&synth.cancel();flyToItem(it);return true;}
 
 // ---------------- main loop ----------------
 starMat.uniforms.uTw.value=reduceMotion?0:1;
@@ -759,7 +731,7 @@ renderer.setAnimationLoop(frame);
 // start
 orientSky();updateTitle();applyLang();geoAuto();
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});
-window.__sky={aiAsk:t=>aiAsk(t),aiSystem:()=>aiSystem(),findName:a=>{const e=findName([a]);const it=e&&e.make();return it&&it.name;},isFrozen:()=>frozen,groundOn:()=>S.ground,pause:()=>{simAnchor=simNow();paused=true;},zoomIn,zoomOut,zoomReset,fieldReport,heard:(t)=>heard(t,true),PL,GAL,setSim,
+window.__sky={pkey:w=>pkey(w),fuzzy:a=>{const f=fuzzyBest([a],cmdCands(),4),n=fuzzyBest([a],nameCands(),0);const d=x=>x&&{t:x.c.kind==='cmd'?x.c.target:(x.c.target.make()||{}).name,sc:+x.sc.toFixed(2),heard:x.heard,amb:x.amb&&(x.amb.c.kind==='cmd'?x.amb.c.target:(x.amb.c.target.make()||{}).name)};return {cmd:d(f),name:d(n)};},findName:a=>{const e=findName([a]);const it=e&&e.make();return it&&it.name;},isFrozen:()=>frozen,groundOn:()=>S.ground,pause:()=>{simAnchor=simNow();paused=true;},zoomIn,zoomOut,zoomReset,fieldReport,heard:(t)=>heard(t,true),PL,GAL,setSim,
   aimEq:(raDeg,dec)=>{qTrack.identity();trackEq=null;const w=eqv(raDeg,dec,1).applyMatrix4(sky.matrix).normalize();az=Math.atan2(w.x,-w.z);pitch=Math.asin(w.y);},
   aimBody:k=>{qTrack.identity();trackEq=null;const p=[...PL,...GAL].find(x=>x.k===k);if(!p||!p.v)return;const w=p.v.clone().applyMatrix4(sky.matrix).normalize();az=Math.atan2(w.x,-w.z);pitch=Math.asin(w.y);},
   setFovNow:f=>{fovGoal=f;camera.fov=f;camera.updateProjectionMatrix();},setLang:l=>{S.lang=l;applyLang();},altOf:v=>{const w=v.clone().applyMatrix4(sky.matrix);return Math.asin(w.y)/D2R;}};

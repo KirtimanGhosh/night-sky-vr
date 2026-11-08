@@ -17,14 +17,19 @@ button{cursor:pointer}button.pri{background:var(--acc);color:#1a0f08;border:0;fo
 .you{color:var(--mut);font-size:14px}.say{font-size:17px;margin:4px 0}.act{font-size:13px;color:var(--ok);font-family:ui-monospace,monospace}.act.bad{color:var(--bad)}
 .tm{font-size:12px;color:var(--mut)}
 </style></head><body>
-<h1>Sky conversation — trial</h1>
+<h1>Sky conversation — trial v2</h1>
 <p class="s">Tests a small AI model running entirely on this phone. The sky list is a fixed snapshot of Bhubaneswar, 8 Nov 2026, 9 pm. The first load downloads the model once (use Wi-Fi); after that it works offline.</p>
 <div class="r"><select id="model">
-<option value="Qwen3-1.7B-q4f16_1-MLC">Qwen3 1.7B — best languages (≈1 GB)</option>
-<option value="Qwen3-0.6B-q4f16_1-MLC">Qwen3 0.6B — fastest (≈0.4 GB)</option>
-<option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 1B — for comparison (≈0.7 GB)</option>
+<option value="Qwen3-0.6B-q4f32_1-MLC">Qwen3 0.6B · safe mode (≈0.5 GB) — try first</option>
+<option value="Qwen2.5-0.5B-Instruct-q4f32_1-MLC">Qwen2.5 0.5B · safe mode (≈0.4 GB)</option>
+<option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">Llama 3.2 1B · safe mode (≈0.9 GB)</option>
+<option value="Qwen3-1.7B-q4f32_1-MLC">Qwen3 1.7B · safe mode (≈1.3 GB) — best languages</option>
+<option value="Qwen3-0.6B-q4f16_1-MLC">Qwen3 0.6B · fast mode (≈0.4 GB)</option>
+<option value="Qwen3-1.7B-q4f16_1-MLC">Qwen3 1.7B · fast mode (≈1 GB)</option>
 </select><button id="load" class="pri">Load model</button></div>
 <div id="bar"><i></i></div><div id="stat">Not loaded.</div>
+<div class="r"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="strict" style="width:auto"> Strict answer format (uses more GPU)</label>
+<button id="quick" disabled>Quick test: say hi</button></div>
 <div class="r"><select id="lang"><option value="en">English</option><option value="bn">বাংলা</option><option value="hi">हिन्दी</option><option value="or">ଓଡ଼ିଆ</option></select>
 <label style="display:flex;align-items:center;gap:6px;flex:0 0 auto"><input type="checkbox" id="speakOn" checked style="width:auto"> Speak replies</label></div>
 <button id="talk" disabled>Hold to talk</button>
@@ -32,9 +37,21 @@ button{cursor:pointer}button.pri{background:var(--acc);color:#1a0f08;border:0;fo
 <div class="chips" id="chips"></div>
 <div id="log"></div>
 <div class="r"><button id="clear">New conversation</button><button id="del">Delete model from phone</button></div>
+<details id="diag" open><summary style="color:var(--mut);margin:10px 0">Diagnostics (copy and send to Claude if something fails)</summary>
+<pre id="dlog" style="white-space:pre-wrap;font-size:12px;color:var(--mut);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:260px;overflow:auto"></pre>
+<button id="copyLog">Copy diagnostics</button></details>
 <script type="module">
 import * as webllm from "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.86/+esm";
 const $=id=>document.getElementById(id);
+const T0=performance.now();function dlog(m){const t=((performance.now()-T0)/1000).toFixed(1);$('dlog').textContent+='['+t+'s] '+m+'\n';$('dlog').scrollTop=1e9;}
+addEventListener('error',e=>dlog('page error: '+e.message));addEventListener('unhandledrejection',e=>dlog('unhandled: '+(e.reason&&e.reason.message||e.reason)));
+dlog('Chrome '+((navigator.userAgent.match(/Chrome\/(\d+)/)||[])[1]||'?')+', RAM '+(navigator.deviceMemory||'?')+' GB, WebGPU '+(navigator.gpu?'yes':'no'));
+if(window.GPUAdapter){const orig=GPUAdapter.prototype.requestDevice;GPUAdapter.prototype.requestDevice=async function(desc){
+  const info=this.info||{};dlog('GPU: '+[info.vendor,info.architecture,info.description].filter(Boolean).join(' ')+'; f16 '+this.features.has('shader-f16')+'; max storage block '+Math.round(this.limits.maxStorageBufferBindingSize/2**20)+' MB, max buffer '+Math.round(this.limits.maxBufferSize/2**20)+' MB');
+  const rl=(desc&&desc.requiredLimits)||{};dlog('model asks: storage block '+Math.round((rl.maxStorageBufferBindingSize||0)/2**20)+' MB, buffer '+Math.round((rl.maxBufferSize||0)/2**20)+' MB, features '+JSON.stringify((desc&&desc.requiredFeatures)||[]));
+  const dev=await orig.call(this,desc);dev.lost.then(i=>dlog('GPU DEVICE LOST: reason='+i.reason+' message='+i.message));dev.addEventListener&&dev.addEventListener('uncapturederror',ev=>dlog('GPU error: '+(ev.error&&ev.error.message)));return dev;};}
+document.addEventListener('visibilitychange',()=>dlog(document.hidden?'page hidden (app switched / screen off)':'page visible again'));
+$('copyLog').onclick=async()=>{try{await navigator.clipboard.writeText($('dlog').textContent);$('copyLog').textContent='Copied — paste it in the chat';}catch(_){}};
 // ---- tonight's sky (snapshot from the Night Sky VR app; alt = degrees above horizon, negative = below) ----
 const SKY=[
 ["Saturn","planet",70.5,"1,289 million km away"],["Neptune","planet",68.9,"4,362 million km away, needs a telescope"],["Uranus","planet",37.6,"2,766 million km away, barely visible to the eye"],
@@ -55,51 +72,50 @@ const TESTS={en:['Show me a comet','How far is it?','Show me Andromeda','Which p
  hi:['मुझे एक धूमकेतु दिखाओ','वह कितनी दूर है?','शनि दिखाओ','अभी कौन से ग्रह दिख रहे हैं?','और पास जाओ','क्या बृहस्पति अभी आसमान में है?'],
  or:['ମୋତେ ଗୋଟିଏ ଧୂମକେତୁ ଦେଖାଅ','ତାହା କେତେ ଦୂର?','ଶନି ଦେଖାଅ','ବର୍ତ୍ତମାନ କେଉଁ ଗ୍ରହ ଦେଖାଯାଉଛି?','ଆଉ ପାଖକୁ ଯାଅ','ବୃହସ୍ପତି ଏବେ ଆକାଶରେ ଅଛି କି?']};
 function sysPrompt(lang){
- return `You control a sky-viewing app. The user speaks; you choose ONE action and write a short spoken reply.
-Objects in the sky now (name | type | altitude in degrees, negative means below the horizon | facts):
-${SKY.map(s=>s[0]+' | '+s[1]+' | '+s[2]+' | '+(s[3]||'-')).join('\n')}
-
-Actions: goto (turn to and zoom on target), describe (talk about target), zoom_in, zoom_out, home (show the whole sky), freeze, unfreeze, ask (you need the user to choose; list the options in "say"), answer (just answer a question), none (not a command).
-Rules:
-- "target" must be copied exactly from the object names above, or "" if no object.
-- To pick "a comet", "a galaxy", "a planet" etc., use the type column. Prefer objects above the horizon (altitude > 0); among comets prefer the brightest (smallest magnitude).
-- If the target is below the horizon, still use goto but say it is below the horizon.
-- Words like "it", "that", "there" refer to the object discussed last.
-- If the user asks for something that is not in the list (for example a pulsar or a black hole), use action "none", target "", and say it is not among the objects the app can show tonight.
-- Use ONLY the facts listed above. If a fact is not listed, say you do not know. Never invent numbers.
-- Write "say" in ${LN[lang]}, one or two short sentences, natural and friendly.
-Reply as JSON: {"action":..., "target":..., "say":...}`;}
+ return `You control a sky app. Pick ONE action and a short reply.
+Sky now (name; type; altitude°, minus = below horizon; facts):
+${SKY.filter(x=>x[1]!=='moon of Jupiter').map(x=>x[0]+'; '+x[1]+'; '+x[2]+(x[3]?'; '+x[3]:'')).join('\n')}
+Actions: goto, describe, zoom_in, zoom_out, home, freeze, unfreeze, ask, answer, none.
+Rules: target = exact name from the list or "". "a comet"/"a planet" = pick by type, prefer altitude > 0. "it" = last object. If not in the list (e.g. pulsar), action none and say so. Use only the listed facts; never invent numbers.
+Reply in ${LN[lang]}, one short sentence, as JSON only: {"action":"...","target":"...","say":"..."}`;}
 const SCHEMA=JSON.stringify({type:'object',properties:{action:{type:'string',enum:['goto','describe','zoom_in','zoom_out','home','freeze','unfreeze','ask','answer','none']},target:{type:'string'},say:{type:'string'}},required:['action','target','say']});
 let engine=null,hist=[],busy=false,curModel='';
 function chips(){const c=$('chips');c.innerHTML='';TESTS[$('lang').value].forEach(t=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>ask(t);c.appendChild(b);});}
 $('lang').onchange=()=>{chips();};chips();
 async function loadModel(m){if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
  if(engine){try{await engine.unload();}catch(_){}engine=null;}const t0=performance.now();
- engine=await webllm.CreateMLCEngine(m,{initProgressCallback:p=>{$('bar').firstChild.style.width=Math.round((p.progress||0)*100)+'%';$('stat').textContent=p.text;}},{context_window_size:2048});
- curModel=m;return (performance.now()-t0)/1000;}
+ dlog('loading '+m);let lastPct=-10;
+ engine=await webllm.CreateMLCEngine(m,{initProgressCallback:p=>{const pc=Math.round((p.progress||0)*100);if(pc>=lastPct+25||pc===100){lastPct=pc;dlog('load '+pc+'%: '+String(p.text).slice(0,90));}$('bar').firstChild.style.width=Math.round((p.progress||0)*100)+'%';$('stat').textContent=p.text;}},{context_window_size:1024});
+ curModel=m;dlog('model ready in '+((performance.now()-t0)/1000).toFixed(0)+' s');return (performance.now()-t0)/1000;}
 $('load').onclick=async()=>{const m=$('model').value;if(engine&&curModel===m)return;$('load').disabled=true;$('stat').textContent='Starting…';
  try{const dt=await loadModel(m);$('stat').textContent='Ready: '+m+' (loaded in '+dt.toFixed(0)+' s). Hold the button and speak, or tap a test sentence.';
-  ['talk','txt','send'].forEach(i=>$(i).disabled=false);}
- catch(e){$('stat').textContent='Could not load: '+e.message;}
+  ['talk','txt','send','quick'].forEach(i=>$(i).disabled=false);}
+ catch(e){$('stat').textContent='Could not load: '+e.message;dlog('LOAD FAILED: '+e.message);}
  $('load').disabled=false;};
 const GPU_LOST=/instance reference|device.*lost|lost.*device|mapAsync|GPUBuffer|destroyed|GPU/i;
 async function ask(text,retry){if(!engine||(busy&&!retry)||!text.trim())return;busy=true;const lang=$('lang').value;
  const card=document.createElement('div');card.innerHTML='<div class="you"></div><div class="say">…thinking</div><div class="act"></div><div class="tm"></div>';$('log').prepend(card);card.querySelector('.you').textContent='You: '+text;
  const msgs=[{role:'system',content:sysPrompt(lang)},...hist.slice(-6),{role:'user',content:text}];const t0=performance.now();
- try{const r=await engine.chat.completions.create({messages:msgs,temperature:0.3,max_tokens:160,response_format:{type:'json_object',schema:SCHEMA},extra_body:{enable_thinking:false}});
-  const raw=r.choices[0].message.content,dt=(performance.now()-t0)/1000;let o;try{o=JSON.parse(raw);}catch(_){o={action:'none',target:'',say:raw};}
+ try{const req={messages:msgs,temperature:0.3,max_tokens:120,extra_body:{enable_thinking:false}};if($('strict').checked)req.response_format={type:'json_object',schema:SCHEMA};
+  dlog('asking ('+(req.response_format?'strict':'plain')+', prompt '+msgs.reduce((n,m)=>n+m.content.length,0)+' chars)');
+  const r=await engine.chat.completions.create(req);
+  const raw=r.choices[0].message.content,dt=(performance.now()-t0)/1000;dlog('reply in '+dt.toFixed(1)+' s');let o;const mm=(raw||'').replace(/<think>[\s\S]*?<\/think>/g,'').match(/\{[\s\S]*\}/);try{o=JSON.parse(mm?mm[0]:raw);}catch(_){o={action:'none',target:'',say:raw};}
   const valid=!o.target||IDS.includes(o.target);card.querySelector('.say').textContent=o.say||'';
   const a=card.querySelector('.act');a.textContent='action: '+o.action+(o.target?'  →  '+o.target:'')+(valid?'':'  (not in the list!)');if(!valid)a.classList.add('bad');
   const u=r.usage||{},ex=u.extra||{};card.querySelector('.tm').textContent=dt.toFixed(1)+' s'+(ex.decode_tokens_per_s?' · '+ex.decode_tokens_per_s.toFixed(1)+' text-pieces/s writing · '+(ex.prefill_tokens_per_s||0).toFixed(0)+'/s reading':'');
   hist.push({role:'user',content:text},{role:'assistant',content:raw});
   if($('speakOn').checked&&o.say&&window.speechSynthesis){const s=new SpeechSynthesisUtterance(o.say);s.lang=SR_L[lang];const v=speechSynthesis.getVoices().filter(v=>v.lang.replace('_','-').startsWith(SR_L[lang].slice(0,2)));if(v.length)s.voice=v.find(x=>/google|natural/i.test(x.name))||v[0];speechSynthesis.cancel();speechSynthesis.speak(s);}}
- catch(e){if(!retry&&GPU_LOST.test(e.message)){card.querySelector('.say').textContent='The phone reset its graphics chip; reloading the model from storage and trying again…';
+ catch(e){dlog('ASK FAILED: '+e.message);if(!retry&&GPU_LOST.test(e.message)){card.querySelector('.say').textContent='The phone reset its graphics chip; reloading the model from storage and trying again…';
    try{const dt=await loadModel(curModel);card.remove();$('stat').textContent='Reloaded after a graphics reset ('+dt.toFixed(0)+' s). Resets so far: '+(++resets)+'.';busy=false;return ask(text,true);}
    catch(e2){card.querySelector('.say').textContent='Reload failed: '+e2.message;}}
   else card.querySelector('.say').textContent='Error: '+e.message;}
  busy=false;}
 let resets=0;
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&busy)$('stat').textContent='Keep this page on screen while it is answering.';});
+$('quick').onclick=async()=>{if(!engine||busy)return;busy=true;dlog('quick test…');const t0=performance.now();
+ try{const r=await engine.chat.completions.create({messages:[{role:'user',content:'Say hi in three words.'}],max_tokens:12,temperature:0,extra_body:{enable_thinking:false}});
+  dlog('quick test OK in '+((performance.now()-t0)/1000).toFixed(1)+' s: '+JSON.stringify(r.choices[0].message.content));$('stat').textContent='Quick test passed. Now try a question.';}
+ catch(e){dlog('QUICK TEST FAILED: '+e.message);$('stat').textContent='Quick test failed — see Diagnostics.';}busy=false;};
 $('send').onclick=()=>{ask($('txt').value);$('txt').value='';};$('txt').onkeydown=e=>{if(e.key==='Enter')$('send').click();};
 $('clear').onclick=()=>{hist=[];$('log').innerHTML='';};
 $('del').onclick=async()=>{const m=$('model').value;try{if(engine&&curModel===m){await engine.unload();engine=null;curModel='';['talk','txt','send'].forEach(i=>$(i).disabled=true);}await webllm.deleteModelAllInfoInCache(m);$('stat').textContent='Deleted '+m+' from this phone.';}catch(e){$('stat').textContent='Delete failed: '+e.message;}};

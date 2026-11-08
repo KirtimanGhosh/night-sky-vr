@@ -17,7 +17,7 @@ button{cursor:pointer}button.pri{background:var(--acc);color:#1a0f08;border:0;fo
 .you{color:var(--mut);font-size:14px}.say{font-size:17px;margin:4px 0}.act{font-size:13px;color:var(--ok);font-family:ui-monospace,monospace}.act.bad{color:var(--bad)}
 .tm{font-size:12px;color:var(--mut)}
 </style></head><body>
-<h1>Sky conversation — trial v2</h1>
+<h1>Sky conversation — trial v3</h1>
 <p class="s">Tests a small AI model running entirely on this phone. The sky list is a fixed snapshot of Bhubaneswar, 8 Nov 2026, 9 pm. The first load downloads the model once (use Wi-Fi); after that it works offline.</p>
 <div class="r"><select id="model">
 <option value="Qwen3-0.6B-q4f32_1-MLC">Qwen3 0.6B · safe mode (≈0.5 GB) — try first</option>
@@ -28,6 +28,7 @@ button{cursor:pointer}button.pri{background:var(--acc);color:#1a0f08;border:0;fo
 <option value="Qwen3-1.7B-q4f16_1-MLC">Qwen3 1.7B · fast mode (≈1 GB)</option>
 </select><button id="load" class="pri">Load model</button></div>
 <div id="bar"><i></i></div><div id="stat">Not loaded.</div>
+<div class="r"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="tiny" checked style="width:auto"> Tiny prompt (much less GPU work)</label></div>
 <div class="r"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="strict" style="width:auto"> Strict answer format (uses more GPU)</label>
 <button id="quick" disabled>Quick test: say hi</button></div>
 <div class="r"><select id="lang"><option value="en">English</option><option value="bn">বাংলা</option><option value="hi">हिन्दी</option><option value="or">ଓଡ଼ିଆ</option></select>
@@ -48,6 +49,7 @@ addEventListener('error',e=>dlog('page error: '+e.message));addEventListener('un
 dlog('Chrome '+((navigator.userAgent.match(/Chrome\/(\d+)/)||[])[1]||'?')+', RAM '+(navigator.deviceMemory||'?')+' GB, WebGPU '+(navigator.gpu?'yes':'no'));
 if(window.GPUAdapter){const orig=GPUAdapter.prototype.requestDevice;GPUAdapter.prototype.requestDevice=async function(desc){
   const info=this.info||{};dlog('GPU: '+[info.vendor,info.architecture,info.description].filter(Boolean).join(' ')+'; f16 '+this.features.has('shader-f16')+'; max storage block '+Math.round(this.limits.maxStorageBufferBindingSize/2**20)+' MB, max buffer '+Math.round(this.limits.maxBufferSize/2**20)+' MB');
+  if(desc&&desc.requiredFeatures&&desc.requiredFeatures.includes('subgroups')){desc.requiredFeatures=desc.requiredFeatures.filter(f=>f!=='subgroups');dlog('(subgroups switched off)');}
   const rl=(desc&&desc.requiredLimits)||{};dlog('model asks: storage block '+Math.round((rl.maxStorageBufferBindingSize||0)/2**20)+' MB, buffer '+Math.round((rl.maxBufferSize||0)/2**20)+' MB, features '+JSON.stringify((desc&&desc.requiredFeatures)||[]));
   const dev=await orig.call(this,desc);dev.lost.then(i=>dlog('GPU DEVICE LOST: reason='+i.reason+' message='+i.message));dev.addEventListener&&dev.addEventListener('uncapturederror',ev=>dlog('GPU error: '+(ev.error&&ev.error.message)));return dev;};}
 document.addEventListener('visibilitychange',()=>dlog(document.hidden?'page hidden (app switched / screen off)':'page visible again'));
@@ -78,6 +80,13 @@ ${SKY.filter(x=>x[1]!=='moon of Jupiter').map(x=>x[0]+'; '+x[1]+'; '+x[2]+(x[3]?
 Actions: goto, describe, zoom_in, zoom_out, home, freeze, unfreeze, ask, answer, none.
 Rules: target = exact name from the list or "". "a comet"/"a planet" = pick by type, prefer altitude > 0. "it" = last object. If not in the list (e.g. pulsar), action none and say so. Use only the listed facts; never invent numbers.
 Reply in ${LN[lang]}, one short sentence, as JSON only: {"action":"...","target":"...","say":"..."}`;}
+function sysPromptTiny(lang){return `Turn the user's words into JSON {"action":"","target":"","say":""}. action: goto, describe, zoom_in, zoom_out, home, freeze, unfreeze, answer or none. target: the sky object or kind the user means, in English (e.g. Saturn, comet, galaxy, Andromeda), or "" ; "it" means the last object. say: very short reply in ${LN[lang]}. JSON only.`;}
+let lastObj=null;
+function resolve(t){if(!t)return lastObj;const q=t.toLowerCase().trim();
+ let hit=SKY.find(x=>x[0].toLowerCase()===q)||SKY.find(x=>x[0].toLowerCase().includes(q)||q.includes(x[0].toLowerCase().replace(/^m\d+ /,'')));if(hit)return hit;
+ const kinds=[['comet','comet'],['galax','galaxy'],['nebula','nebula'],['cluster','star cluster'],['planet','planet'],['constellation','constellation'],['star','star'],['moon','moon']];
+ const k=kinds.find(([w])=>q.includes(w));if(!k)return null;const c=SKY.filter(x=>x[1].includes(k[1])&&x[2]>0);
+ const mag=x=>{const m=(x[3]||'').match(/magnitude (-?[\d.]+)/);return m?+m[1]:99;};c.sort((a,b)=>mag(a)-mag(b));return c[0]||null;}
 const SCHEMA=JSON.stringify({type:'object',properties:{action:{type:'string',enum:['goto','describe','zoom_in','zoom_out','home','freeze','unfreeze','ask','answer','none']},target:{type:'string'},say:{type:'string'}},required:['action','target','say']});
 let engine=null,hist=[],busy=false,curModel='';
 function chips(){const c=$('chips');c.innerHTML='';TESTS[$('lang').value].forEach(t=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>ask(t);c.appendChild(b);});}
@@ -95,13 +104,14 @@ $('load').onclick=async()=>{const m=$('model').value;if(engine&&curModel===m)ret
 const GPU_LOST=/instance reference|device.*lost|lost.*device|mapAsync|GPUBuffer|destroyed|GPU/i;
 async function ask(text,retry){if(!engine||(busy&&!retry)||!text.trim())return;busy=true;const lang=$('lang').value;
  const card=document.createElement('div');card.innerHTML='<div class="you"></div><div class="say">…thinking</div><div class="act"></div><div class="tm"></div>';$('log').prepend(card);card.querySelector('.you').textContent='You: '+text;
- const msgs=[{role:'system',content:sysPrompt(lang)},...hist.slice(-6),{role:'user',content:text}];const t0=performance.now();
+ const tiny=$('tiny').checked;const msgs=[{role:'system',content:tiny?sysPromptTiny(lang):sysPrompt(lang)},...hist.slice(tiny?-2:-6),{role:'user',content:text}];const t0=performance.now();
  try{const req={messages:msgs,temperature:0.3,max_tokens:120,extra_body:{enable_thinking:false}};if($('strict').checked)req.response_format={type:'json_object',schema:SCHEMA};
-  dlog('asking ('+(req.response_format?'strict':'plain')+', prompt '+msgs.reduce((n,m)=>n+m.content.length,0)+' chars)');
+  dlog('asking ('+(tiny?'tiny':'full')+', '+(req.response_format?'strict':'plain')+', prompt '+msgs.reduce((n,m)=>n+m.content.length,0)+' chars)');
   const r=await engine.chat.completions.create(req);
   const raw=r.choices[0].message.content,dt=(performance.now()-t0)/1000;dlog('reply in '+dt.toFixed(1)+' s');let o;const mm=(raw||'').replace(/<think>[\s\S]*?<\/think>/g,'').match(/\{[\s\S]*\}/);try{o=JSON.parse(mm?mm[0]:raw);}catch(_){o={action:'none',target:'',say:raw};}
+  let extra='';if(tiny){const hitO=resolve(o.target);if(hitO){lastObj=hitO;o.target=hitO[0];extra=(hitO[2]<0?' (below the horizon now)':'')+(hitO[3]?' — '+hitO[3]:'');}else if(o.target){extra=' — not in tonight\'s list';o.target='';}}
   const valid=!o.target||IDS.includes(o.target);card.querySelector('.say').textContent=o.say||'';
-  const a=card.querySelector('.act');a.textContent='action: '+o.action+(o.target?'  →  '+o.target:'')+(valid?'':'  (not in the list!)');if(!valid)a.classList.add('bad');
+  const a=card.querySelector('.act');a.textContent='action: '+o.action+(o.target?'  →  '+o.target:'')+extra+(valid?'':'  (not in the list!)');if(!valid)a.classList.add('bad');
   const u=r.usage||{},ex=u.extra||{};card.querySelector('.tm').textContent=dt.toFixed(1)+' s'+(ex.decode_tokens_per_s?' · '+ex.decode_tokens_per_s.toFixed(1)+' text-pieces/s writing · '+(ex.prefill_tokens_per_s||0).toFixed(0)+'/s reading':'');
   hist.push({role:'user',content:text},{role:'assistant',content:raw});
   if($('speakOn').checked&&o.say&&window.speechSynthesis){const s=new SpeechSynthesisUtterance(o.say);s.lang=SR_L[lang];const v=speechSynthesis.getVoices().filter(v=>v.lang.replace('_','-').startsWith(SR_L[lang].slice(0,2)));if(v.length)s.voice=v.find(x=>/google|natural/i.test(x.name))||v[0];speechSynthesis.cancel();speechSynthesis.speak(s);}}

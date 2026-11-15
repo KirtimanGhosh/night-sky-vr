@@ -116,6 +116,11 @@ body.stereo #divider{display:block}
   </div>
   <div class="grp"><h3 data-i="vr">Headset view</h3><div class="row"><label for="ipd"><span data-i="ipd">Lens distance</span> <input id="ipd" type="range" min="50" max="80" step="1"> <b id="ipdOut"></b></label></div></div>
   <div class="grp"><div class="row"><label for="dsoChk"><input id="dsoChk" type="checkbox"> <span data-i="dso">Nebula and galaxy photos</span></label></div></div>
+  <div class="grp"><h3>Voice log</h3>
+   <p class="tip">Records what the microphone hears and what the app decides, so voice problems can be traced. It stays on this phone until you save or share it.</p>
+   <div class="row"><button id="logSave">Save log file</button><button id="logShare">Share log</button><button id="logClear">Clear log</button></div>
+   <pre id="logView" style="max-height:12em;overflow:auto;white-space:pre-wrap;font-size:11px;line-height:1.3;opacity:.85;margin:6px 0 0"></pre>
+  </div>
   <div class="grp"><h3 data-i="offline">Offline data</h3>
    <p class="tip" data-i="offTxt"></p>
    <div class="row"><button id="dlBtn" data-i="dlAll">Download everything (150 MB)</button><span class="tip" id="dlState"></span></div>

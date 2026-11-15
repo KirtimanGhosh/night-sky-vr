@@ -7,7 +7,7 @@ const D2R=Math.PI/180, R=100, AU_KM=149597870.7, C_KMS=299792.458;
 const AE=window.Astronomy, SD=window.SKYDATA, I18N=window.I18N;
 const $=id=>document.getElementById(id);
 // ---------------- voice log (kept on the phone, saved as a file on request) ----------------
-const APPV='v14';const VLOG=[];try{VLOG.push(...JSON.parse(localStorage.getItem('nsvr-log')||'[]'));}catch(_){}
+const APPV='v15';const VLOG=[];try{VLOG.push(...JSON.parse(localStorage.getItem('nsvr-log')||'[]'));}catch(_){}
 let vlSaveT=null;
 function vlog(...a){try{const d=new Date(),ts=d.toTimeString().slice(0,8)+'.'+String(d.getMilliseconds()).padStart(3,'0');
   VLOG.push(ts+' '+a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' '));if(VLOG.length>2500)VLOG.splice(0,VLOG.length-2500);
@@ -617,12 +617,30 @@ function vkPhrases(l,all){const out=new Set(),I=I18N[l]||I18N.en,dev=/[ऀ-ॿ]/
   ['that','what is that','what is this','information','hold','continue','enough','this','number'].forEach(p=>out.delete(p));
   if(all)return [...out];const W=vkWords(l);return [...out].filter(p=>p.split(' ').every(w=>W.has(w)));}
 function vkStopWords(l){const W=vkWords(l);return (l==='hi'?['रुको','रुकिए','रुकिये','बस','चुप','स्टॉप']:['stop','quiet','silence']).filter(w=>W.has(w));}
+// download the model archive ourselves (to show progress and to keep it if unpacking is interrupted)
+async function vkFetch(l,onStep){const url=new URL(VOSK[l].file,location.href).href;let c=null;try{c=await caches.open('nsvr-vk');}catch(_){}
+  const hit=c&&await c.match(url);if(hit){vlog('vosk: archive already downloaded');return URL.createObjectURL(await hit.blob());}
+  const t0=performance.now(),resp=await fetch(url,{cache:'no-store'});if(!resp.ok)throw new Error('download failed (HTTP '+resp.status+')');
+  const total=+resp.headers.get('content-length')||VOSK[l].mb*1048576,rd=resp.body.getReader(),parts=[];let got=0,step=0;
+  for(;;){const {done,value}=await rd.read();if(done)break;parts.push(value);got+=value.length;onStep&&onStep('dl',got,total);
+    if(got/total>=step){vlog('vosk: downloaded',(got/1048576).toFixed(1)+' MB of '+(total/1048576).toFixed(1),Math.round((performance.now()-t0)/1000)+' s');step+=0.25;}}
+  const blob=new Blob(parts,{type:'application/gzip'});vlog('vosk: download complete',(got/1048576).toFixed(1)+' MB in '+Math.round((performance.now()-t0)/1000)+' s');
+  if(c)try{await c.put(url,new Response(blob));}catch(e){vlog('vosk: could not keep archive',e.message);}
+  return URL.createObjectURL(blob);}
 async function vkModel(l,onStep){if(vk.models[l])return vk.models[l];
   onStep&&onStep('lib');await Promise.all([loadScript('lib/vosk.js'),loadScript('lib/vosk-words.js')]);VKW={};
-  const url=new URL(VOSK[l].file,location.href).href;vlog('vosk: loading model',l,url,vkHave(l)?'(kept on phone)':'(first download '+VOSK[l].mb+' MB)');
-  onStep&&onStep('model');const t0=performance.now();
-  const m=await Vosk.createModel(url);vk.models[l]=m;vkMark(l,true);vlog('vosk: model ready in',Math.round(performance.now()-t0)+' ms');
-  m.on('error',e=>vlog('vosk: model error',e&&e.error));return m;}
+  const url=new URL(VOSK[l].file,location.href).href,key=VOSK[l].file.replace(/\W/g,'_'),have=vkHave(l);
+  const src=have?url:await vkFetch(l,onStep);   // when already unpacked on the phone, nothing is fetched
+  vlog('vosk: opening model',l,have?'(kept on phone)':'(unpacking new download)');const t0=performance.now();
+  const m=new Vosk.Model(src+'#'+key);
+  try{await new Promise((ok,no)=>{const dog=setTimeout(()=>no(new Error('unpacking took more than 4 minutes; the phone may be short of memory')),240000);
+      const end=f=>(...a)=>{clearTimeout(dog);f(...a);};
+      m.on('load',end(e=>e&&e.result?ok():no(new Error('the model did not load'))));m.on('error',end(e=>no(new Error(e&&e.error||'unknown error')))); 
+      try{m.worker.addEventListener('error',end(e=>no(new Error('recogniser crashed: '+(e.message||'out of memory?')))));}catch(_){}
+      m.on('stage',e=>{vlog('vosk: '+e.stage,Math.round((performance.now()-t0)/1000)+' s');onStep&&onStep(e.stage);});});}
+  catch(e){try{m.terminate();}catch(_){}if(src.startsWith('blob:'))URL.revokeObjectURL(src);throw e;}
+  if(src.startsWith('blob:')){URL.revokeObjectURL(src);try{(await caches.open('nsvr-vk')).delete(url);}catch(_){}}
+  vk.models[l]=m;vkMark(l,true);vlog('vosk: model ready in',Math.round(performance.now()-t0)+' ms');m.on('error',e=>vlog('vosk: model error',e&&e.error));return m;}
 async function vkStart(){const l=S.lang;engine='vosk';micState.textContent='…';
   try{const m=await vkModel(l);
     if(!vk.stream){vk.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});}
@@ -663,11 +681,14 @@ function vkUI(){const b=$('vkBtn'),st=$('vkState'),c=$('vkChk');if(!b)return;con
   else{b.textContent='Download offline voice ('+v.mb+' MB)';st.textContent='';}}
 $('vkChk').onchange=e=>{S.offVoice=e.target.checked;save();if(listening)voiceRestart();};
 $('vkBtn').onclick=async()=>{const l=S.lang,st=$('vkState'),b=$('vkBtn');
-  if(vkHave(l)){if(listening)voiceOff();Object.values(vk.models).forEach(m=>{try{m.terminate();}catch(_){}});vk.models={};setTimeout(()=>{try{indexedDB.deleteDatabase('/vosk');}catch(_){}},300);
+  if(vkHave(l)){if(listening)voiceOff();Object.values(vk.models).forEach(m=>{try{m.terminate();}catch(_){}});vk.models={};setTimeout(()=>{try{indexedDB.deleteDatabase('/vosk');}catch(_){}},300);caches.open('nsvr-vk').then(c=>Object.values(VOSK).forEach(v=>c.delete(new URL(v.file,location.href).href))).catch(()=>{});
     ['en','hi'].forEach(x=>vkMark(x,false));vlog('vosk: removed offline models');vkUI();return;}
   if(!navigator.onLine){st.textContent='Connect to the internet to download.';return;}
-  b.disabled=true;const t0=Date.now();const tick=setInterval(()=>{st.textContent='Downloading and unpacking… '+Math.round((Date.now()-t0)/1000)+' s (keep the app open)';},1000);
-  try{await vkModel(l);clearInterval(tick);vkUI();say('Offline voice is ready.',4000);if(listening)voiceRestart();}
+  b.disabled=true;const t0=Date.now();let stage='Starting',ts=Date.now();
+  const names={lib:'Loading the recogniser',unpack:'Unpacking',store:'Saving on the phone',open:'Opening the model'};
+  const tick=setInterval(()=>{st.textContent=stage+'… '+Math.round((Date.now()-ts)/1000)+' s (keep the app open)';},1000);
+  const onStep=(k,got,tot)=>{if(k==='dl'){stage='Downloading '+(got/1048576).toFixed(0)+' of '+(tot/1048576).toFixed(0)+' MB';return;}stage=names[k]||k;ts=Date.now();};
+  try{await vkModel(l,onStep);clearInterval(tick);vkUI();say('Offline voice is ready.',4000);if(listening)voiceRestart();}
   catch(e){clearInterval(tick);vlog('vosk: download FAILED',e&&e.message||String(e));st.textContent='Download failed: '+(e&&e.message||e);}
   b.disabled=false;};
 vkUI();

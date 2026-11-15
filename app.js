@@ -7,7 +7,7 @@ const D2R=Math.PI/180, R=100, AU_KM=149597870.7, C_KMS=299792.458;
 const AE=window.Astronomy, SD=window.SKYDATA, I18N=window.I18N;
 const $=id=>document.getElementById(id);
 // ---------------- voice log (kept on the phone, saved as a file on request) ----------------
-const APPV='v13';const VLOG=[];try{VLOG.push(...JSON.parse(localStorage.getItem('nsvr-log')||'[]'));}catch(_){}
+const APPV='v14';const VLOG=[];try{VLOG.push(...JSON.parse(localStorage.getItem('nsvr-log')||'[]'));}catch(_){}
 let vlSaveT=null;
 function vlog(...a){try{const d=new Date(),ts=d.toTimeString().slice(0,8)+'.'+String(d.getMilliseconds()).padStart(3,'0');
   VLOG.push(ts+' '+a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' '));if(VLOG.length>2500)VLOG.splice(0,VLOG.length-2500);
@@ -329,7 +329,7 @@ function updateReadout(){const d=new Date(simNow());const live=!paused&&tSpeed==
   $('clock').innerHTML=`<b>${d.toLocaleString(S.lang==='en'?'en-GB':S.lang+'-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</b>${live?' <span class="live">LIVE</span>':(tSpeed!==1&&!paused?' ×'+tSpeed:'')} · ${camera.fov<1?(camera.fov*60).toFixed(0)+'′':camera.fov.toFixed(camera.fov<10?1:0)+'°'}`;}
 function applyLang(){const u=L().ui;document.documentElement.lang=S.lang;document.querySelectorAll('[data-i]').forEach(el=>{const k=el.getAttribute('data-i');if(u[k])el.textContent=u[k];});
   $('sayWords').textContent=L().cmdWords.join(' · ');viewLabel();langLabel();$('freezeBtn').textContent=frozen?L().ui.unfreeze:L().ui.freeze;if(frozen){pickItems=viewItems();showPick();}mkStaticLabels();mkCardinal();for(const k in solarLbl){solarNames.remove(solarLbl[k]);dropLabel(solarLbl[k]);delete solarLbl[k];}
-  pathAt=-1e18;updateSolar();fillVoices();if(listening)startRec();}
+  pathAt=-1e18;updateSolar();fillVoices();vkUI();if(listening)voiceRestart();}
 function toggle(id,key,fn){const b=$(id);b.setAttribute('aria-pressed',!!S[key]);b.onclick=()=>{S[key]=!S[key];save();b.setAttribute('aria-pressed',S[key]);fn&&fn(S[key]);};}
 let linesUntil=0;const showLines=()=>performance.now()<linesUntil||(synth&&synth.speaking&&linesUntil>0);toggle('namesBtn','names');toggle('groundBtn','ground',on=>{starMat.uniforms.uGround.value=on?1:0;mwMat.uniforms.uGround.value=on?1:0;});
 toggle('narrBtn','narr',on=>{if(!on){synth&&synth.cancel();cap.hidden=true;setCapSprite(null);}else lastSaid=null;});
@@ -584,10 +584,10 @@ function startRec(){if(!SR){say('Speech recognition is not available in this bro
   try{rec.start();vlog('rec: start() called');if(!listening)say(L().cmdWords.join(' · '),4000);listening=true;vcBtn.setAttribute('aria-pressed','true');}catch(e){vlog('rec: start() FAILED',e.name,e.message);say('Voice commands could not start.');}}
 let recN=0,netErr=0;const seenIdx=new Set();
 // after the app stops talking, start a fresh listening session so the tail of its own voice is thrown away
-let flushT=null;function flushRec(why){if(!listening)return;clearTimeout(flushT);flushT=setTimeout(()=>{if(!listening)return;vlog('rec: fresh session ('+why+')');try{startRec();}catch(_){}} ,150);}
+let flushT=null;function flushRec(why){if(!listening||engine!=='google')return;clearTimeout(flushT);flushT=setTimeout(()=>{if(!listening)return;vlog('rec: fresh session ('+why+')');try{startRec();}catch(_){}} ,150);}
 function stopTalk(){synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);speakingUntil=0;flushRec('after stop');}setInterval(()=>{if(listening)vlog('status: listening',busyInfo(),'frozen='+frozen,'lang='+S.lang);},15000);
-vcBtn.onclick=()=>{vlog('button: voice commands',listening?'OFF':'ON');if(!listening)voiceEnv();if(listening){listening=false;try{rec.abort();}catch(e){}vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;}else startRec();};
-async function voiceEnv(){const info=['env: SR='+(window.SpeechRecognition?'standard':window.webkitSpeechRecognition?'webkit':'none'),'phrasesAPI='+!!window.SpeechRecognitionPhrase,'lang='+L().code,'narration='+S.narr,'voices='+(synth?synth.getVoices().length:0)];
+vcBtn.onclick=()=>{vlog('button: voice commands',listening?'OFF':'ON');if(listening)voiceOff();else{voiceEnv();voiceOn();}};
+async function voiceEnv(){const info=['env: engine='+(vkWanted()?'offline (vosk)':'online (google)'),'SR='+(window.SpeechRecognition?'standard':window.webkitSpeechRecognition?'webkit':'none'),'phrasesAPI='+!!window.SpeechRecognitionPhrase,'lang='+L().code,'narration='+S.narr,'voices='+(synth?synth.getVoices().length:0)];
   try{const p=await navigator.permissions.query({name:'microphone'});info.push('mic permission='+p.state);}catch(_){info.push('mic permission=?');}
   try{if(SR&&SR.available){const a=await SR.available({langs:[L().code],processLocally:true});info.push('on-device model='+a);}}catch(e){info.push('on-device check failed');}
   vlog(...info);}
@@ -597,6 +597,80 @@ $('logSave').onclick=()=>{const a=document.createElement('a');a.href=URL.createO
 $('logShare').onclick=async()=>{const t=logText();try{const f=new File([t],logName(),{type:'text/plain'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:'Night Sky VR voice log'});return;}}catch(e){if(e.name==='AbortError')return;}
   try{await navigator.clipboard.writeText(t);say('Log copied. Paste it in the chat.',6000);}catch(_){say('Could not share. Use "Save log file" instead.',6000);}};
 $('logClear').onclick=()=>{VLOG.length=0;try{localStorage.removeItem('nsvr-log');}catch(_){}vlog('log cleared');};
+// ---------------- offline voice: Vosk speech recogniser running on the phone (English, Hindi) ----------------
+// The language model is downloaded once and kept on the phone; after that no internet and no Google server is used.
+const VOSK={en:{file:'vosk/en-us-0.15.tar.gz',mb:41},hi:{file:'vosk/hi-0.22.tar.gz',mb:44}};
+let engine='google',vk={models:{},ctx:null,stream:null,node:null,rec:null,stopRec:null,loading:null};
+const vkHave=l=>{try{return localStorage.getItem('nsvr-vk-'+l)==='1';}catch(_){return false;}};
+const vkMark=(l,v)=>{try{v?localStorage.setItem('nsvr-vk-'+l,'1'):localStorage.removeItem('nsvr-vk-'+l);}catch(_){}};
+const vkWanted=()=>S.offVoice!==false&&!!VOSK[S.lang]&&vkHave(S.lang);
+const loaded={};function loadScript(src){return loaded[src]||(loaded[src]=new Promise((ok,no)=>{const e=document.createElement('script');e.src=src;e.onload=ok;e.onerror=()=>{delete loaded[src];no(new Error('could not load '+src));};document.head.appendChild(e);}));}
+// words the model knows (only these can be in its word list)
+let VKW={};function vkWords(l){if(VKW[l])return VKW[l];VKW[l]=new Set(((window.VKWORDS||{})[l]||'').split(' '));return VKW[l];}
+function vkPhrases(l,all){const out=new Set(),I=I18N[l]||I18N.en,dev=/[ऀ-ॿ]/,lat=/^[a-z0-9 ]+$/;
+  const ok=p=>{p=nrm(p).replace(/[^a-z0-9ऀ-ॿ ]/g,' ').replace(/\s+/g,' ').trim();if(!p)return;if(l==='en'?!lat.test(p):!dev.test(p)||/[a-z]/.test(p))return;out.add(p);};
+  if(l==='en'){Object.values(CMDP).flat().forEach(ok);NUMW.en.forEach(ok);['number','show me','go to','what is that','zoom in','zoom out','freeze view','whole sky'].forEach(ok);}
+  Object.values(I.cmd).forEach(r=>String(r.source).replace(/\\b/g,'').replace(/[()?]/g,' ').split('|').forEach(ok));
+  (I.cmdWords||[]).forEach(ok);(NUMW[l]||[]).forEach(ok);
+  if(!NAMEIDX)buildNameIdx();NAMEIDX.forEach(e=>e.keys.forEach(ok));Object.values(ALIAS).flat().forEach(ok);
+  // everyday phrases the forced-choice recogniser would wrongly find in ordinary talk
+  ['that','what is that','what is this','information','hold','continue','enough','this','number'].forEach(p=>out.delete(p));
+  if(all)return [...out];const W=vkWords(l);return [...out].filter(p=>p.split(' ').every(w=>W.has(w)));}
+function vkStopWords(l){const W=vkWords(l);return (l==='hi'?['रुको','रुकिए','रुकिये','बस','चुप','स्टॉप']:['stop','quiet','silence']).filter(w=>W.has(w));}
+async function vkModel(l,onStep){if(vk.models[l])return vk.models[l];
+  onStep&&onStep('lib');await Promise.all([loadScript('lib/vosk.js'),loadScript('lib/vosk-words.js')]);VKW={};
+  const url=new URL(VOSK[l].file,location.href).href;vlog('vosk: loading model',l,url,vkHave(l)?'(kept on phone)':'(first download '+VOSK[l].mb+' MB)');
+  onStep&&onStep('model');const t0=performance.now();
+  const m=await Vosk.createModel(url);vk.models[l]=m;vkMark(l,true);vlog('vosk: model ready in',Math.round(performance.now()-t0)+' ms');
+  m.on('error',e=>vlog('vosk: model error',e&&e.error));return m;}
+async function vkStart(){const l=S.lang;engine='vosk';micState.textContent='…';
+  try{const m=await vkModel(l);
+    if(!vk.stream){vk.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});}
+    if(!vk.ctx||vk.ctx.state==='closed')vk.ctx=new (window.AudioContext||window.webkitAudioContext)();await vk.ctx.resume();
+    const sr=vk.ctx.sampleRate,ph=vkPhrases(l),sw=vkStopWords(l);vlog('vosk: start',l,'rate='+sr,ph.length+' phrases','stop words: '+sw.join(','));
+    vkDropRecs();vk.rec=new m.KaldiRecognizer(sr,JSON.stringify(ph.concat(['[unk]'])));vk.stopRec=sw.length?new m.KaldiRecognizer(sr,JSON.stringify(sw.concat(['[unk]']))):null;
+    let last='',acted=false;const clean=t=>(t||'').replace(/\[unk\]/g,' ').replace(/\s+/g,' ').trim();
+    // act only on finished phrases, keeping only the words the recogniser is sure of (it must pick from the word list, so unsure words are often wrong)
+    vk.rec.on('partialresult',e=>{const t=clean(e.result&&e.result.partial);if(!t||t===last)return;last=t;
+      if(!acted&&sw.includes(t)){vlog('heard interim (offline)',t);acted=true;stopTalk();}});
+    vk.rec.setWords(true);
+    vk.rec.on('result',e=>{const raw=e.result&&e.result.text||'',ws=(e.result&&e.result.result||[]).filter(w=>w.word!=='[unk]');last='';
+      const cf=ws.map(w=>w.word+':'+(+w.conf).toFixed(2)).join(' '),nums=frozen?(NUMW[l]||[]):[],sure=ws.filter(w=>w.conf>=(nums.includes(w.word)?0.45:0.75)).map(w=>w.word).join(' ');
+      if(ws.length){vlog('heard FINAL (offline)',clean(raw),'['+cf+']',acted?'[already acted]':sure!==clean(raw)?'-> using: '+(sure||'(nothing sure)'):'');if(!acted&&sure)heard(sure,true);}
+      else if(raw)vlog('  (unknown sound ignored)');acted=false;});
+    vk.rec.on('error',e=>vlog('vosk: recogniser error',e&&e.error));
+    if(vk.stopRec)vk.stopRec.on('result',e=>{const t=clean(e.result&&e.result.text);if(t){vlog('heard over the app (offline)',t);if(sw.some(w=>t.split(' ').includes(w)))stopTalk();}});
+    const src=vk.ctx.createMediaStreamSource(vk.stream);const node=vk.ctx.createScriptProcessor(4096,1,1);
+    node.onaudioprocess=ev=>{if(!listening||engine!=='vosk')return;const talking=(synth&&synth.speaking)||performance.now()<speakingUntil;
+      try{if(talking){if(vk.stopRec)vk.stopRec.acceptWaveform(ev.inputBuffer);}else vk.rec.acceptWaveform(ev.inputBuffer);}catch(err){vlog('vosk: audio error',err.message);}};
+    src.connect(node);node.connect(vk.ctx.destination);vk.node=node;vk.src=src;
+    listening=true;vcBtn.setAttribute('aria-pressed','true');micState.textContent=L().ui.listening+' (offline)';say(L().cmdWords.join(' · '),4000);
+  }catch(e){vlog('vosk: FAILED',e&&e.name,e&&e.message||String(e));engine='google';vkDropAudio();
+    if(e&&e.name==='NotAllowedError'){listening=false;vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;say('Microphone blocked: allow the microphone for this app, then tap Voice commands again.',8000);return;}
+    say('Offline voice could not start; using online recognition.',6000);startRec();}}
+function vkDropRecs(){['rec','stopRec'].forEach(k=>{try{vk[k]&&vk[k].remove();}catch(_){}vk[k]=null;});}
+function vkDropAudio(){try{vk.node&&vk.node.disconnect();vk.src&&vk.src.disconnect();}catch(_){}vk.node=vk.src=null;vkDropRecs();
+  try{vk.stream&&vk.stream.getTracks().forEach(t=>t.stop());}catch(_){}vk.stream=null;}
+function voiceOn(){if(vkWanted())vkStart();else{engine='google';startRec();
+  if(VOSK[S.lang]&&!vkHave(S.lang)&&!voiceOn.tip){voiceOn.tip=1;setTimeout(()=>say('Tip: download offline voice in Settings, so commands work without internet.',6000),4200);}}}
+function voiceOff(){listening=false;try{rec&&rec.abort();}catch(_){}vkDropAudio();vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;vlog('voice off');}
+function voiceRestart(){voiceOff();voiceOn();}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&vk.ctx&&engine==='vosk'&&listening)vk.ctx.resume().catch(()=>{});});
+// settings: download / remove the offline model for the current language
+function vkUI(){const b=$('vkBtn'),st=$('vkState'),c=$('vkChk');if(!b)return;const v=VOSK[S.lang];c.checked=S.offVoice!==false;
+  if(!v){b.hidden=true;st.textContent='Not available for this language yet; online recognition is used.';return;}
+  b.hidden=false;if(vkHave(S.lang)){b.textContent='Remove offline voice';st.textContent='Ready: voice commands in this language work without internet.';}
+  else{b.textContent='Download offline voice ('+v.mb+' MB)';st.textContent='';}}
+$('vkChk').onchange=e=>{S.offVoice=e.target.checked;save();if(listening)voiceRestart();};
+$('vkBtn').onclick=async()=>{const l=S.lang,st=$('vkState'),b=$('vkBtn');
+  if(vkHave(l)){if(listening)voiceOff();Object.values(vk.models).forEach(m=>{try{m.terminate();}catch(_){}});vk.models={};setTimeout(()=>{try{indexedDB.deleteDatabase('/vosk');}catch(_){}},300);
+    ['en','hi'].forEach(x=>vkMark(x,false));vlog('vosk: removed offline models');vkUI();return;}
+  if(!navigator.onLine){st.textContent='Connect to the internet to download.';return;}
+  b.disabled=true;const t0=Date.now();const tick=setInterval(()=>{st.textContent='Downloading and unpacking… '+Math.round((Date.now()-t0)/1000)+' s (keep the app open)';},1000);
+  try{await vkModel(l);clearInterval(tick);vkUI();say('Offline voice is ready.',4000);if(listening)voiceRestart();}
+  catch(e){clearInterval(tick);vlog('vosk: download FAILED',e&&e.message||String(e));st.textContent='Download failed: '+(e&&e.message||e);}
+  b.disabled=false;};
+vkUI();
 let tiltArmed=true,tiltT=0;const rvec=new THREE.Vector3();
 function headTilt(dt){if(frozen||!S.tilt||!motionOn||!devQ)return;rvec.set(1,0,0).applyQuaternion(camera.quaternion);const roll=rvec.y;if(!tiltArmed){if(Math.abs(roll)<0.2)tiltArmed=true;return;}
   if(Math.abs(roll)>0.42){tiltT+=dt;if(tiltT>0.6){tiltArmed=false;tiltT=0;roll<0?zoomIn():zoomOut();}}else tiltT=0;}
@@ -652,7 +726,9 @@ const LOCD='০১২৩৪৫৬৭৮৯०१२३४५६७८९୦୧�
 function nrm(x){return String(x).toLowerCase().replace(/[০-৯०-९୦-୯]/g,c=>String(LOCD.indexOf(c)%10)).replace(/[´’'`\-\/(),.:;!?।"]/g,' ').replace(/\s+/g,' ').trim();}
 let NAMEIDX=null;
 const ALIAS={Saturn:['satan','saturn planet'],Jupiter:['jupyter'],Moon:['the moon','chand','chanda','চাঁদ','চন্দ্র','चाँद','चांद','चंद्रमा','ଜହ୍ନ','ଚନ୍ଦ୍ର'],Sun:['surya','সূর্য','सूरज','सूर्य','�ସୂର୍ଯ୍ୟ'],
-  Mars:['mangal','মঙ্গল','मंगल','ମଙ୍ଗଳ'],Venus:['shukra','শুক্র','शुक्र','ଶୁକ୍ର'],Mercury:['budh','বুধ','बुध','ବୁଧ'],Polaris:['pole star','north star','dhruva tara','dhruv tara'],Sirius:['dog star']};
+  Mars:['mangal','মঙ্গল','मंगल','ମଙ୍ଗଳ'],Venus:['shukra','শুক্র','शुक्र','ଶୁକ୍ର'],Mercury:['budh','বুধ','बुध','ବୁଧ'],Polaris:['pole star','north star','dhruva tara','dhruv tara'],Sirius:['dog star'],
+  // spellings the offline recogniser knows, for names missing from its dictionary
+  Canopus:['can opus'],Spica:['spike uh','spiker'],Procyon:['pro scion'],Mintaka:['mint taka'],Bellatrix:['bella tricks'],Alnitak:['al knit tack'],Achernar:['acker nar'],Denebola:['deneb bola'],Dubhe:['duby'],Betelgeuse:['beetle juice','beetlejuice']};
 function buildNameIdx(){const E=[],LS=Object.keys(I18N);
   const add=(keys,make,min)=>{const ks=new Set();keys.forEach(k=>{if(!k)return;const parts=[k,...String(k).split(/[()]/)];parts.forEach(q=>{q=nrm(q);if(q.length>=(min||3)&&!/^\d+$/.test(q))ks.add(q);});});if(ks.size)E.push({keys:[...ks],make});};
   PL.forEach(p=>add(LS.flatMap(l=>[I18N[l].planet&&I18N[l].planet[p.k],I18N[l].label&&I18N[l].label[p.k]]).concat([p.k],ALIAS[p.k]||[]),()=>p.v&&{name:L().label[p.k]||L().planet[p.k],v:p.v.clone(),fov:Math.max(p.ang*2/D2R*(p.k==='Saturn'?6:4),0.006),info:()=>bodyText(p),body:p.k}));
@@ -783,7 +859,7 @@ renderer.setAnimationLoop(frame);
 // start
 orientSky();updateTitle();applyLang();geoAuto();
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});
-window.__sky={pkey:w=>pkey(w),fuzzy:a=>{const f=fuzzyBest([a],cmdCands(),4),n=fuzzyBest([a],nameCands(),0);const d=x=>x&&{t:x.c.kind==='cmd'?x.c.target:(x.c.target.make()||{}).name,sc:+x.sc.toFixed(2),heard:x.heard,amb:x.amb&&(x.amb.c.kind==='cmd'?x.amb.c.target:(x.amb.c.target.make()||{}).name)};return {cmd:d(f),name:d(n)};},findName:a=>{const e=findName([a]);const it=e&&e.make();return it&&it.name;},isFrozen:()=>frozen,groundOn:()=>S.ground,pause:()=>{simAnchor=simNow();paused=true;},zoomIn,zoomOut,zoomReset,fieldReport,heard:(t)=>heard(t,true),PL,GAL,setSim,
+window.__sky={vkPhrases:(l,a)=>vkPhrases(l,a),engine:()=>engine,pkey:w=>pkey(w),fuzzy:a=>{const f=fuzzyBest([a],cmdCands(),4),n=fuzzyBest([a],nameCands(),0);const d=x=>x&&{t:x.c.kind==='cmd'?x.c.target:(x.c.target.make()||{}).name,sc:+x.sc.toFixed(2),heard:x.heard,amb:x.amb&&(x.amb.c.kind==='cmd'?x.amb.c.target:(x.amb.c.target.make()||{}).name)};return {cmd:d(f),name:d(n)};},findName:a=>{const e=findName([a]);const it=e&&e.make();return it&&it.name;},isFrozen:()=>frozen,groundOn:()=>S.ground,pause:()=>{simAnchor=simNow();paused=true;},zoomIn,zoomOut,zoomReset,fieldReport,heard:(t)=>heard(t,true),PL,GAL,setSim,
   aimEq:(raDeg,dec)=>{qTrack.identity();trackEq=null;const w=eqv(raDeg,dec,1).applyMatrix4(sky.matrix).normalize();az=Math.atan2(w.x,-w.z);pitch=Math.asin(w.y);},
   aimBody:k=>{qTrack.identity();trackEq=null;const p=[...PL,...GAL].find(x=>x.k===k);if(!p||!p.v)return;const w=p.v.clone().applyMatrix4(sky.matrix).normalize();az=Math.atan2(w.x,-w.z);pitch=Math.asin(w.y);},
   setFovNow:f=>{fovGoal=f;camera.fov=f;camera.updateProjectionMatrix();},setLang:l=>{S.lang=l;applyLang();},altOf:v=>{const w=v.clone().applyMatrix4(sky.matrix);return Math.asin(w.y)/D2R;}};

@@ -116,6 +116,12 @@ body.stereo #divider{display:block}
   </div>
   <div class="grp"><h3 data-i="vr">Headset view</h3><div class="row"><label for="ipd"><span data-i="ipd">Lens distance</span> <input id="ipd" type="range" min="50" max="80" step="1"> <b id="ipdOut"></b></label></div></div>
   <div class="grp"><div class="row"><label for="dsoChk"><input id="dsoChk" type="checkbox"> <span data-i="dso">Nebula and galaxy photos</span></label></div></div>
+  <div class="grp"><h3>Offline voice commands</h3>
+   <p class="tip">Recognises voice commands on the phone itself, with no internet and no Google server. English and Hindi; Bengali and Odia still use online recognition.</p>
+   <div class="row"><button id="vkBtn">Download offline voice</button></div>
+   <p class="tip" id="vkState"></p>
+   <div class="row"><label for="vkChk"><input id="vkChk" type="checkbox" checked> <span>Use offline voice when downloaded</span></label></div>
+  </div>
   <div class="grp"><h3>Voice log</h3>
    <p class="tip">Records what the microphone hears and what the app decides, so voice problems can be traced. It stays on this phone until you save or share it.</p>
    <div class="row"><button id="logSave">Save log file</button><button id="logShare">Share log</button><button id="logClear">Clear log</button></div>
@@ -126,7 +132,7 @@ body.stereo #divider{display:block}
    <div class="row"><button id="dlBtn" data-i="dlAll">Download everything (150 MB)</button><span class="tip" id="dlState"></span></div>
   </div>
   <div class="grp"><h3 data-i="credits">Data and image credits</h3>
-   <p class="cred">Positions: Astronomy Engine (Don Cross, MIT licence). Stars: HYG database 3.8 and AT-HYG v3.2 (Hipparcos, Tycho-2, Gaia DR3, Yale, Gliese; CC BY-SA 4.0). Comets: Minor Planet Center ephemerides (Oct 2026–Jan 2027). Constellation lines, Messier list: d3-celestial (BSD). Planet, moon and ring maps (Björn Jónsson and others), Milky Way panorama, nebula photos (credited per image): Stellarium project (GPL). Great Red Spot longitude model: davidastro.com estimate. Non-commercial personal use.</p>
+   <p class="cred">Positions: Astronomy Engine (Don Cross, MIT licence). Offline speech recognition: Vosk and vosk-browser (Alpha Cephei, Ciaran O'Reilly; Apache 2.0). Stars: HYG database 3.8 and AT-HYG v3.2 (Hipparcos, Tycho-2, Gaia DR3, Yale, Gliese; CC BY-SA 4.0). Comets: Minor Planet Center ephemerides (Oct 2026–Jan 2027). Constellation lines, Messier list: d3-celestial (BSD). Planet, moon and ring maps (Björn Jónsson and others), Milky Way panorama, nebula photos (credited per image): Stellarium project (GPL). Great Red Spot longitude model: davidastro.com estimate. Non-commercial personal use.</p>
   </div>
  </div>
 </div>

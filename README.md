@@ -10,6 +10,8 @@ Open **https://kirtimanghosh.github.io/night-sky-vr/** in Chrome on Android, the
 - **Freeze**: ❄ Freeze stops the view and lists the named objects in it. Tap or say a number to fly there, or say the name of anything in the sky (planet, Moon, Jupiter's moons, comet, named star, constellation, Messier object such as "M42"; English, বাংলা, हिन्दी or ଓଡ଼ିଆ). If it is below the horizon, the ground is hidden and the app says when it rises.
 - **Views**: plain screen (drag or turn the phone) and split-screen headset view with adjustable lens distance; *Night view* (always dark) or *Actual view* (daylight/twilight as it really is).
 - **Voice and narration** in English, বাংলা, हिन्दी and ଓଡ଼ିଆ (🌐 button on the main bar). Narration is off by default; say **explain / describe** (ব্যাখ্যা করো, समझाओ) to hear about the objects in view, **stop** (থামো, रुको) to end it, **closer / back / home** to zoom. Head tilt right/left also zooms. Speech is matched first exactly, then by sound: names and commands written in Bengali, Hindi or Odia script are converted to sounds and compared with a spelling-distance measure, so close variations ("jupitar", "beetle juice", "শনী", "धुर्व तारा") still work; if two matches are equally close the app asks which one was meant. Constellation lines, nebula outlines and planet paths appear only during an explanation.
+- **Offline voice commands** (English and Hindi): Settings → *Offline voice commands* → *Download* (41 MB English, 44 MB Hindi, once). Speech is then recognised on the phone by [Vosk](https://alphacephei.com/vosk/) with no internet and no Google server. The recogniser listens only for the app's own words (commands, numbers, names), acts only on words it is sure of, and does not listen while the app is talking (except for *stop*). Bengali and Odia use Chrome's online recognition.
+- **Voice log**: Settings → *Voice log* records what the microphone heard and what the app decided; *Share log* sends it as a text file for troubleshooting.
 
 ## Files
 | Path | Content |
@@ -21,6 +23,8 @@ Open **https://kirtimanghosh.github.io/night-sky-vr/** in Chrome on Android, the
 | `data/deep/b00–b17.bin` | AT-HYG faint stars, 7 bytes per star (RA, Dec, magnitude, colour) |
 | `data/comets.js` | Comet positions from Minor Planet Center ephemerides |
 | `tex/` | Planet, moon, ring and Milky Way maps |
+| `lib/vosk.js`, `lib/vosk-words.js` | vosk-browser 0.0.8 (offline speech recogniser); the app's words that the models know |
+| `vosk/*.tar.gz` | Vosk small models: English (en-us 0.15), Hindi (hi 0.22) |
 
 ## Data and credits
 - Positions and rotation: [Astronomy Engine](https://github.com/cosinekitty/astronomy) (MIT)
@@ -28,6 +32,7 @@ Open **https://kirtimanghosh.github.io/night-sky-vr/** in Chrome on Android, the
 - Constellation lines, Messier and bright deep-sky lists: [d3-celestial](https://github.com/ofrohn/d3-celestial) (BSD)
 - Planet/moon/ring maps (Björn Jónsson and others), Milky Way panorama, nebula photographs (credited per image): [Stellarium](https://github.com/Stellarium/stellarium) (GPL-2.0)
 - Comets: Minor Planet Center Ephemeris Service; JPL Small-Body Database
+- Offline speech recognition: [Vosk](https://github.com/alphacep/vosk-api) small models en-us-0.15 and hi-0.22 (Alpha Cephei, Apache 2.0); [vosk-browser](https://github.com/ccoreilly/vosk-browser) (Apache 2.0)
 - Great Red Spot longitude model: estimate of 91.0° (System II) on 1 June 2026, drifting +1.75°/month ([davidastro.com](https://tools.davidastro.com/en/tools/jupiter-grs-transit-calculator)); can be set manually in Settings
 
 ## Accuracy check

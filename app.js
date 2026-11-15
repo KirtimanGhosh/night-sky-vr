@@ -7,7 +7,7 @@ const D2R=Math.PI/180, R=100, AU_KM=149597870.7, C_KMS=299792.458;
 const AE=window.Astronomy, SD=window.SKYDATA, I18N=window.I18N;
 const $=id=>document.getElementById(id);
 // ---------------- voice log (kept on the phone, saved as a file on request) ----------------
-const APPV='v12';const VLOG=[];try{VLOG.push(...JSON.parse(localStorage.getItem('nsvr-log')||'[]'));}catch(_){}
+const APPV='v13';const VLOG=[];try{VLOG.push(...JSON.parse(localStorage.getItem('nsvr-log')||'[]'));}catch(_){}
 let vlSaveT=null;
 function vlog(...a){try{const d=new Date(),ts=d.toTimeString().slice(0,8)+'.'+String(d.getMilliseconds()).padStart(3,'0');
   VLOG.push(ts+' '+a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' '));if(VLOG.length>2500)VLOG.splice(0,VLOG.length-2500);
@@ -422,7 +422,7 @@ function speak(text,force){if((!S.narr&&!force)||!synth||!text)return;synth.canc
   const parts=text.match(/[^.!?।]+[.!?।]?/g)||[text];vlog('tts: speak',parts.length+' parts','voice='+(v?v.name+'/'+v.lang:'default'),JSON.stringify(text.slice(0,80)));
   parts.forEach((s,i)=>{const u=new SpeechSynthesisUtterance(s.trim());if(v)u.voice=v;u.lang=v?v.lang:L().code;u.rate=S.rate;u.pitch=1;
     u.onerror=e=>vlog('tts: error part',i,e.error);if(i===0)u.onstart=()=>vlog('tts: started');
-    if(i===parts.length-1)u.onend=()=>{speakingUntil=performance.now()+1500;speechEnd=performance.now();vlog('tts: finished');};synth.speak(u);});}
+    if(i===parts.length-1)u.onend=()=>{speakingUntil=performance.now()+300;speechEnd=performance.now();vlog('tts: finished');if(typeof flushRec==='function')flushRec('app finished talking');};synth.speak(u);});}
 function show(text,name){if(!S.narr&&!showForce)return;cap.textContent=text;cap.hidden=false;setCapSprite(name);}
 let capSprite=null;function setCapSprite(text){if(capSprite){camera.remove(capSprite);dropLabel(capSprite);capSprite=null;}if(!text)return;
   capSprite=label(text,0.09,'#ffd9cf');capSprite.material.depthTest=false;capSprite.renderOrder=10;capSprite.center.set(0.5,1.6);capSprite.position.set(0,0,-1);camera.add(capSprite);}
@@ -543,7 +543,7 @@ function heard(text,final){let alts=text.split('|').map(s=>s.toLowerCase().repla
   const isStop=alts.some(a=>C.stop.test(a)||EN.stop.test(a));
   if(!isStop){const own=alts.filter(isEcho);if(own.length===alts.length){if(final){micState.textContent=U2('echo');vlog('  -> ignored as the app\'s own voice');}return final;}if(own.length)vlog('  echo removed:',own);alts=alts.filter(a=>!isEcho(a));}
   if(!busy&&pickByVoice(alts)){micState.textContent='✓ '+alts[0];vlog('  -> picked from frozen view');return true;}
-  const order=[['unfreeze',()=>setFreeze(false),false],['freeze',()=>setFreeze(true),false],['stop',()=>{synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);},true],['tell',tellMore,false],['closer',zoomIn,false],['back',zoomOut,false],['home',zoomReset,false]];
+  const order=[['unfreeze',()=>setFreeze(false),false],['freeze',()=>setFreeze(true),false],['stop',stopTalk,true],['tell',tellMore,false],['closer',zoomIn,false],['back',zoomOut,false],['home',zoomReset,false]];
   for(const [k,fn,safe] of order){if(busy&&!safe)continue;if(alts.some(a=>C[k].test(a)||EN[k].test(a))){const now=performance.now();if(k===lastCmd&&now-lastCmdAt<2500){vlog('  -> repeat of',k,'skipped');return true;}lastCmd=k;lastCmdAt=now;
       vlog('  -> command (exact):',k);if(k!=='stop')synth&&synth.cancel();fn();micState.textContent='✓ '+alts[0];if(stereo&&k!=='tell')setCapSprite('✓');return true;}}
   if(final){const fz=fuzzyHeard(alts,busy);if(fz)return true;}
@@ -557,24 +557,35 @@ function fuzzyHeard(alts,busy){
   vlog('  fuzzy best:',b.heard,'->',b.c.kind==='cmd'?b.c.target:b.c.raw||'name',Math.round(b.sc*100)+'%',b.amb?'(ambiguous)':'');
   if(busy&&!(b.c.kind==='cmd'&&b.c.target==='stop'))return false;
   if(b.amb){const nm=x=>x.c.kind==='cmd'?x.c.raw:(x.c.target.make()||{}).name;vlog('  -> asked "did you mean"');micState.textContent='? '+nm(b)+' / '+nm(b.amb);say(T('didYouMean',{a:nm(b),b:nm(b.amb)}),4000);return true;}
-  if(b.c.kind==='cmd'){const k=b.c.target;const fns={unfreeze:()=>{if(frozen)setFreeze(false);},freeze:()=>{if(!frozen)setFreeze(true);},stop:()=>{synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);},tell:tellMore,closer:zoomIn,back:zoomOut,home:zoomReset};
+  if(b.c.kind==='cmd'){const k=b.c.target;const fns={unfreeze:()=>{if(frozen)setFreeze(false);},freeze:()=>{if(!frozen)setFreeze(true);},stop:stopTalk,tell:tellMore,closer:zoomIn,back:zoomOut,home:zoomReset};
     const now=performance.now();if(k===lastCmd&&now-lastCmdAt<2500){vlog('  -> repeat of',k,'skipped');return true;}lastCmd=k;lastCmdAt=now;vlog('  -> command (close match):',k);if(k!=='stop')synth&&synth.cancel();fns[k]();micState.textContent='≈ '+b.heard+' → '+k+' ('+Math.round(Math.min(1,b.sc)*100)+'%)';return true;}
   const it=b.c.target.make();if(!it)return false;const now=performance.now();if(it.name===lastGoto&&now-lastGotoAt<3000)return true;lastGoto=it.name;lastGotoAt=now;vlog('  -> fly to (close match):',it.name);
   const alt=tv.copy(it.v).applyMatrix4(sky.matrix).y;if(alt<0){it.pre=riseText(it);groundTemp(true);}synth&&synth.cancel();flyToItem(it);
   micState.textContent='≈ '+b.heard+' → '+it.name+' ('+Math.round(Math.min(1,b.sc)*100)+'%)';return true;}
 let restartT=null;
 function startRec(){if(!SR){say('Speech recognition is not available in this browser.',7000);return;}try{if(rec){rec.onend=null;rec.abort();}}catch(_){}
-  rec=new SR();rec.lang=L().code;rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=5;const bp=biasPhrases();let pst='none';if(bp){try{rec.phrases=bp;pst=bp.length+' set';}catch(e){noPhrases=true;pst='rejected: '+e.message;}}
+  rec=new SR();rec.__n=recN+1;rec.lang=L().code;rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=5;const bp=biasPhrases();let pst='none';if(bp){try{rec.phrases=bp;pst=bp.length+' set';}catch(e){noPhrases=true;pst='rejected: '+e.message;}}
   vlog('rec: create lang='+rec.lang,'phrases='+pst,'#'+(++recN));rec.onstart=()=>{micState.textContent=L().ui.listening;vlog('rec: started');};
   ['audiostart','soundstart','speechstart','speechend','soundend','audioend','nomatch'].forEach(ev=>rec.addEventListener(ev,()=>vlog('rec:',ev)));
-  let doneIdx=-1;rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];
-      if(r.isFinal||i>doneIdx)vlog('heard',r.isFinal?'FINAL':'interim','#'+i,[...r].map(a=>a.transcript+(a.confidence?' ('+a.confidence.toFixed(2)+')':'')).join(' | '),i<=doneIdx?'[already acted]':'');
-      if(i<=doneIdx)continue;if(heard([...r].map(a=>a.transcript).join(' | '),r.isFinal))doneIdx=i;}};
+  let doneIdx=-1;const appVoice=new Set();
+  rec.onresult=e=>{netErr=0;for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i],txt=[...r].map(a=>a.transcript).join(' | ');
+      // a phrase that began while the app was talking is the app's own voice: ignore all of it, except "stop"
+      if(i>doneIdx&&!appVoice.has(i)&&!seenIdx.has(rec.__n+':'+i)){seenIdx.add(rec.__n+':'+i);if(synth&&synth.speaking){appVoice.add(i);vlog('  result #'+i+' began while the app was talking: treated as the app\'s voice');}}
+      const own=appVoice.has(i);
+      if(r.isFinal||i>doneIdx)vlog('heard',r.isFinal?'FINAL':'interim','#'+i,[...r].map(a=>a.transcript+(a.confidence?' ('+a.confidence.toFixed(2)+')':'')).join(' | '),i<=doneIdx?'[already acted]':own?'[app voice]':'');
+      if(i<=doneIdx)continue;
+      if(own){const al=txt.toLowerCase().split('|');if(al.some(a=>L().cmd.stop.test(a)||EN.stop.test(a))){vlog('  -> stop (said over the app)');stopTalk();doneIdx=i;}continue;}
+      if(heard(txt,r.isFinal))doneIdx=i;}};
   rec.onerror=e=>{vlog('rec: ERROR',e.error,e.message||'');const m={'not-allowed':'Microphone blocked: allow the microphone for this app, then tap Voice commands again.','service-not-allowed':'Speech service blocked on this phone.','audio-capture':'No microphone found.','network':'Voice commands need an internet connection.','language-not-supported':'This language is not supported for voice commands on this phone.'}[e.error];
-    if(e.error==='phrases-not-supported'){noPhrases=true;return;}if(m){listening=false;vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;say(m,8000);}};
-  rec.onend=()=>{vlog('rec: ended',listening?'-> restart in 300 ms':'(voice off)');if(!listening){micState.textContent=L().ui.off;return;}clearTimeout(restartT);restartT=setTimeout(()=>{try{listening&&startRec();}catch(_){}},300);};
+    if(e.error==='phrases-not-supported'){noPhrases=true;return;}
+    if(e.error==='network'&&navigator.onLine!==false&&++netErr<=6){vlog('  network hiccup '+netErr+'/6: will retry');return;}   // the speech server drops long sessions; just reconnect
+    if(m){listening=false;vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;say(m,8000);}};
+  rec.onend=()=>{const d=netErr?Math.min(4000,800*netErr):300;vlog('rec: ended',listening?'-> restart in '+d+' ms':'(voice off)');if(!listening){micState.textContent=L().ui.off;return;}clearTimeout(restartT);restartT=setTimeout(()=>{try{listening&&startRec();}catch(_){}},d);};
   try{rec.start();vlog('rec: start() called');if(!listening)say(L().cmdWords.join(' · '),4000);listening=true;vcBtn.setAttribute('aria-pressed','true');}catch(e){vlog('rec: start() FAILED',e.name,e.message);say('Voice commands could not start.');}}
-let recN=0;setInterval(()=>{if(listening)vlog('status: listening',busyInfo(),'frozen='+frozen,'lang='+S.lang);},15000);
+let recN=0,netErr=0;const seenIdx=new Set();
+// after the app stops talking, start a fresh listening session so the tail of its own voice is thrown away
+let flushT=null;function flushRec(why){if(!listening)return;clearTimeout(flushT);flushT=setTimeout(()=>{if(!listening)return;vlog('rec: fresh session ('+why+')');try{startRec();}catch(_){}} ,150);}
+function stopTalk(){synth&&synth.cancel();linesUntil=0;cap.hidden=true;setCapSprite(null);speakingUntil=0;flushRec('after stop');}setInterval(()=>{if(listening)vlog('status: listening',busyInfo(),'frozen='+frozen,'lang='+S.lang);},15000);
 vcBtn.onclick=()=>{vlog('button: voice commands',listening?'OFF':'ON');if(!listening)voiceEnv();if(listening){listening=false;try{rec.abort();}catch(e){}vcBtn.setAttribute('aria-pressed','false');micState.textContent=L().ui.off;}else startRec();};
 async function voiceEnv(){const info=['env: SR='+(window.SpeechRecognition?'standard':window.webkitSpeechRecognition?'webkit':'none'),'phrasesAPI='+!!window.SpeechRecognitionPhrase,'lang='+L().code,'narration='+S.narr,'voices='+(synth?synth.getVoices().length:0)];
   try{const p=await navigator.permissions.query({name:'microphone'});info.push('mic permission='+p.state);}catch(_){info.push('mic permission=?');}
@@ -706,7 +717,7 @@ function closeness(hk,hs,ck,cs,strict){if(hk===ck)return 1;const L=Math.max(hk.l
   return s;}
 function mkCand(phrase,target,kind){const ws=nrm(phrase).split(' ').filter(Boolean);const k=ws.map(pkey).join('');return {raw:nrm(phrase),n:ws.length,k,s:skel(k),target,kind};}
 // command phrases in all four languages (plus a few spoken variants)
-const CMDP={closer:['closer','closure','go closer','come closer','nearer','forward','zoom in','magnify'],back:['back','go back','backward','farther','further','zoom out'],home:['home','reset','full sky','whole sky'],
+const CMDP={closer:['closer','closure','go closer','come closer','nearer','forward','zoom in','zoomine','magnify'],back:['back','go back','backward','farther','further','zoom out'],home:['home','reset','full sky','whole sky'],
   tell:['explain','describe','description','tell me','details','information','what is this'],stop:['stop','quiet','silence','enough','থামাও','থামো তো','रुकिये','रुक जाओ'],freeze:['freeze','freeze view','lock view'],unfreeze:['unfreeze','release','unlock','resume']};
 let CMDC=null,NAMEC=null;
 function cmdCands(){if(CMDC)return CMDC;CMDC=[];for(const k in CMDP)CMDP[k].forEach(p=>CMDC.push(mkCand(p,k,'cmd')));

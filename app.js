@@ -7,7 +7,7 @@ const D2R=Math.PI/180, R=100, AU_KM=149597870.7, C_KMS=299792.458;
 const AE=window.Astronomy, SD=window.SKYDATA, I18N=window.I18N;
 const $=id=>document.getElementById(id);
 // ---------------- voice log (kept on the phone, saved as a file on request) ----------------
-const APPV='v15';const VLOG=[];try{VLOG.push(...JSON.parse(localStorage.getItem('nsvr-log')||'[]'));}catch(_){}
+const APPV='v16';const VLOG=[];try{VLOG.push(...JSON.parse(localStorage.getItem('nsvr-log')||'[]'));}catch(_){}
 let vlSaveT=null;
 function vlog(...a){try{const d=new Date(),ts=d.toTimeString().slice(0,8)+'.'+String(d.getMilliseconds()).padStart(3,'0');
   VLOG.push(ts+' '+a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' '));if(VLOG.length>2500)VLOG.splice(0,VLOG.length-2500);
@@ -20,9 +20,9 @@ vlog('==== app start',APPV,navigator.userAgent,'standalone='+matchMedia('(displa
 const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---------------- settings ----------------
-const DEF={lang:'en',voiceURI:'',rate:0.95,lat:20.2961,lon:85.8245,place:'Bhubaneswar',grs:'',paths:true,dso:true,narr:false,tilt:true,lines:true,names:true,ground:true,night:true,ipd:63};
+const DEF={lang:'en',voiceURI:'',rate:0.95,lat:20.2961,lon:85.8245,place:'Bhubaneswar',grs:'',paths:true,dso:true,narr:false,tilt:true,lines:true,names:true,ground:true,night:true,ipd:63,vfov:70};
 let S=Object.assign({},DEF);try{Object.assign(S,JSON.parse(localStorage.getItem('nsvr')||'{}'));}catch(_){}
-if(!S.v2){S.narr=false;S.night=true;S.v2=1;}if(!S.v3){S.lines=false;S.paths=false;S.v3=1;}if(S.ipd==null)S.ipd=63;if(S.night==null)S.night=true;
+if(!S.v2){S.narr=false;S.night=true;S.v2=1;}if(!S.v3){S.lines=false;S.paths=false;S.v3=1;}if(S.ipd==null)S.ipd=63;if(!S.vfov)S.vfov=70;if(S.night==null)S.night=true;
 function save(){try{localStorage.setItem('nsvr',JSON.stringify(S));}catch(_){}}
 const L=()=>I18N[S.lang]||I18N.en;
 const T=(k,p)=>{let s=(L().t[k]!=null?L().t[k]:I18N.en.t[k])||'';if(p)for(const x in p)s=s.split('{'+x+'}').join(p[x]);return s;};
@@ -375,8 +375,8 @@ function geoAuto(){try{navigator.permissions&&navigator.permissions.query({name:
 
 // ---------------- look: drag, pinch, motion ----------------
 let az=135*D2R,pitch=35*D2R,yawOff=0;const ptrs=new Map();let pinch0=0;
-const FOV0=70,FOVMIN=0.005;let fovGoal=FOV0,tween=null,warp=0;
-function setFov(f){tween=null;fovGoal=Math.max(FOVMIN,Math.min(95,f));}
+let FOV0=70;const FOVMIN=0.005;   /* FOV0: the un-zoomed view (in the headset: the lenses' field of view, so sizes are true) */ let fovGoal=FOV0,tween=null,warp=0;
+function setFov(f){tween=null;fovGoal=Math.max(FOVMIN,Math.min(Math.max(95,FOV0),f));}
 canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch0=Math.hypot(a.x-b.x,a.y-b.y);}});
 canvas.addEventListener('pointermove',e=>{const pr=ptrs.get(e.pointerId);if(!pr)return;const k=camera.fov/70*0.005;
   if(ptrs.size===1&&frozen&&frozenEq){const w=frozenEq.clone().applyMatrix4(sky.matrix);let a2=Math.atan2(w.x,-w.z)-(e.clientX-pr.x)*k,p2=Math.max(-1.5,Math.min(1.5,Math.asin(w.y)+(e.clientY-pr.y)*k));frozenEq.set(Math.sin(a2)*Math.cos(p2),Math.sin(p2),-Math.cos(a2)*Math.cos(p2)).applyMatrix4(invSky).normalize();flyAnim=null;}
@@ -400,11 +400,12 @@ $('alignBtn').onclick=()=>{const f=new THREE.Vector3(0,0,-1).applyQuaternion(cam
 let stereo=false,wake=null;
 async function goFull(){try{const el=document.documentElement,fn=el.requestFullscreen||el.webkitRequestFullscreen;if(fn){await fn.call(el);return true;}}catch(e){}return false;}
 $('fsBtn').onclick=()=>{goFull();};
-async function setStereo(on){stereo=on;$('turn').hidden=true;document.body.classList.toggle('stereo',on);$('exitVR').hidden=!on;
+function setBaseFov(f){const atBase=fovGoal>=FOV0-0.5;FOV0=f;if(atBase||fovGoal>FOV0){tween=null;fovGoal=FOV0;camera.fov=FOV0;camera.updateProjectionMatrix();}}
+async function setStereo(on){stereo=on;setBaseFov(on?S.vfov:70);if(!on&&calib)calibEnd(true);$('turn').hidden=true;document.body.classList.toggle('stereo',on);$('exitVR').hidden=!on;
   if(on){await goFull();try{await screen.orientation.lock('landscape');}catch(e){}try{wake=await navigator.wakeLock.request('screen');}catch(e){}if(!motionOn)startMotion();}
   else{try{document.fullscreenElement&&document.exitFullscreen();}catch(e){}try{wake&&wake.release();}catch(e){}}resize();}
 $('vrBtn').onclick=()=>setStereo(true);$('exitVR').onclick=()=>setStereo(false);
-let lastTap=0;canvas.addEventListener('pointerup',()=>{if(!stereo)return;const t=performance.now();if(t-lastTap<350)setStereo(false);lastTap=t;});
+let lastTap=0;canvas.addEventListener('pointerup',()=>{if(!stereo)return;if(calib){calibEnd();lastTap=0;return;}const t=performance.now();if(t-lastTap<350)setStereo(false);lastTap=t;});
 
 // ---------------- speech output (most natural available voice, sentence by sentence) ----------------
 const synth=window.speechSynthesis;let voices=[],speakingUntil=0;
@@ -514,8 +515,8 @@ function speedPhrase(Tg,from,to,dur){const frac=Math.abs(from-to)/FOV0;if(Tg.km)
 function announceMove(to,dur){const from=fovGoal,inward=to<from,Tg=moveTarget();let txt,hud;
   if(Tg){const s=speedPhrase(Tg,from,to,dur);txt=T(inward?'move':'moveAway',{n:Tg.name,s:s.txt});hud=(inward?'→ ':'← ')+Tg.name+' · '+(s.c>=1?bigWords(s.c)+' c':Math.round(s.c*100)+'% c');}
   else{txt=T(inward?'moveNone':'backNone');hud=inward?'→':'←';}speak(txt);show(txt,hud);holdReport=!!S.narr;}
-function zoomIn(){pendingReport=false;const to=Math.max(FOVMIN,fovGoal/3);if(to>=fovGoal-1e-6){say(T('closest'),2000);return;}announceMove(to,2.6);startTween(to,2.6);pendingReport=!!S.narr;}
-function zoomOut(){const to=Math.min(FOV0,fovGoal*3);if(to<=fovGoal+1e-6){say(T('fullAlready'),2000);return;}announceMove(to,2.6);startTween(to,2.6);pendingReport=!!S.narr&&to<FOV0-1;}
+function zoomIn(){if(calib){calibAdj(-2);return;}pendingReport=false;const to=Math.max(FOVMIN,fovGoal/3);if(to>=fovGoal-1e-6){say(T('closest'),2000);return;}announceMove(to,2.6);startTween(to,2.6);pendingReport=!!S.narr;}
+function zoomOut(){if(calib){calibAdj(2);return;}const to=Math.min(FOV0,fovGoal*3);if(to<=fovGoal+1e-6){say(T('fullAlready'),2000);return;}announceMove(to,2.6);startTween(to,2.6);pendingReport=!!S.narr&&to<FOV0-1;}
 function zoomReset(){if(fovGoal>=FOV0-1e-3)return;speak(T('home'));show(T('home'),'←');startTween(FOV0,2.2);pendingReport=false;}
 $('zinBtn').onclick=zoomIn;$('zoutBtn').onclick=zoomOut;
 const NW=260,wPos=new Float32Array(NW*6),wR=new Float32Array(NW),wA=new Float32Array(NW);for(let i=0;i<NW;i++){wA[i]=Math.random()*Math.PI*2;wR[i]=0.03+Math.random()*1.4;}
@@ -539,6 +540,7 @@ function isEcho(a){const now=performance.now();if(!echoSet||now-echoAt>2000){ech
 function busyInfo(){return 'busy[speaking='+!!(synth&&synth.speaking)+' pending='+!!(synth&&synth.pending)+' guard='+Math.max(0,Math.round(speakingUntil-performance.now()))+'ms]';}
 function heard(text,final){let alts=text.split('|').map(s=>s.toLowerCase().replace(/[.,!?।"]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);if(!alts.length)return false;
   const busy=(synth&&synth.speaking)||performance.now()<speakingUntil,C=L().cmd;
+  if(calib&&!busy){for(const [k,re] of Object.entries(CALW)){if(alts.some(a=>re.test(a))){vlog('  -> calibration:',k);if(k==='done')calibEnd();else calibAdj(k==='bigger'?-2:2);micState.textContent='✓ '+alts[0];return true;}}}
   if(final||busy)vlog('  decide:',final?'final':'interim',busy?busyInfo():'not busy','frozen='+frozen);
   const isStop=alts.some(a=>C.stop.test(a)||EN.stop.test(a));
   if(!isStop){const own=alts.filter(isEcho);if(own.length===alts.length){if(final){micState.textContent=U2('echo');vlog('  -> ignored as the app\'s own voice');}return final;}if(own.length)vlog('  echo removed:',own);alts=alts.filter(a=>!isEcho(a));}
@@ -609,7 +611,8 @@ const loaded={};function loadScript(src){return loaded[src]||(loaded[src]=new Pr
 let VKW={};function vkWords(l){if(VKW[l])return VKW[l];VKW[l]=new Set(((window.VKWORDS||{})[l]||'').split(' '));return VKW[l];}
 function vkPhrases(l,all){const out=new Set(),I=I18N[l]||I18N.en,dev=/[ऀ-ॿ]/,lat=/^[a-z0-9 ]+$/;
   const ok=p=>{p=nrm(p).replace(/[^a-z0-9ऀ-ॿ ]/g,' ').replace(/\s+/g,' ').trim();if(!p)return;if(l==='en'?!lat.test(p):!dev.test(p)||/[a-z]/.test(p))return;out.add(p);};
-  if(l==='en'){Object.values(CMDP).flat().forEach(ok);NUMW.en.forEach(ok);['number','show me','go to','what is that','zoom in','zoom out','freeze view','whole sky'].forEach(ok);}
+  if(l==='en'){Object.values(CMDP).flat().forEach(ok);NUMW.en.forEach(ok);['number','show me','go to','what is that','zoom in','zoom out','freeze view','whole sky','bigger','smaller','larger','done','okay'].forEach(ok);}
+  if(l==='hi')['बड़ा','छोटा','ठीक है','हो गया'].forEach(ok);
   Object.values(I.cmd).forEach(r=>String(r.source).replace(/\\b/g,'').replace(/[()?]/g,' ').split('|').forEach(ok));
   (I.cmdWords||[]).forEach(ok);(NUMW[l]||[]).forEach(ok);
   if(!NAMEIDX)buildNameIdx();NAMEIDX.forEach(e=>e.keys.forEach(ok));Object.values(ALIAS).flat().forEach(ok);
@@ -692,6 +695,23 @@ $('vkBtn').onclick=async()=>{const l=S.lang,st=$('vkState'),b=$('vkBtn');
   catch(e){clearInterval(tick);vlog('vosk: download FAILED',e&&e.message||String(e));st.textContent='Download failed: '+(e&&e.message||e);}
   b.disabled=false;};
 vkUI();
+// ---------------- headset field of view: makes everything appear at its true angular size ----------------
+// If the drawn field of view is wider than what the lenses show, a world-fixed grid seems to follow the head when it turns
+// (and objects look too small); if narrower, it rushes the other way. The user adjusts until the grid stays still.
+const CALW={bigger:/(\b(bigger|larger|big)\b|বড়|बड़ा|बड़े|ବଡ଼)/,smaller:/(\b(smaller|small)\b|ছোট|छोटा|छोटे|ଛୋଟ)/,done:/(\b(done|finish|finished|okay|ok)\b|ঠিক আছে|হয়ে গেছে|ठीक है|हो गया|ଠିକ ଅଛି)/};
+let calib=false,calGrid=null;
+function makeCalGrid(){const p=[],R=40,P=(az,alt)=>{const a=az*D2R,h=alt*D2R;return [R*Math.cos(h)*Math.sin(a),R*Math.sin(h),-R*Math.cos(h)*Math.cos(a)];};
+  for(let az=0;az<360;az+=10)for(let alt=-60;alt<80;alt+=2)p.push(...P(az,alt),...P(az,alt+2));
+  for(let alt=-60;alt<=80;alt+=10)for(let az=0;az<360;az+=2)p.push(...P(az,alt),...P(az+2,alt));
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
+  const m=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0x66ff99,transparent:true,opacity:0.8,depthTest:false}));m.renderOrder=9;m.frustumCulled=false;return m;}
+async function calibStart(){$('sheet').hidden=true;if(!stereo)await setStereo(true);calib=true;if(!calGrid){calGrid=makeCalGrid();scene.add(calGrid);}calGrid.visible=true;
+  setBaseFov(S.vfov);vlog('calibration start, field of view',S.vfov);showForce=true;show(T('calIntro'),S.vfov+'°');showForce=false;speak(T('calIntro'),true);}
+function calibAdj(d){S.vfov=Math.max(40,Math.min(120,S.vfov+d));save();setBaseFov(S.vfov);vfovUI();setCapSprite(S.vfov+'°');vlog('calibration: field of view',S.vfov);}
+function calibEnd(quiet){if(!calib)return;calib=false;if(calGrid)calGrid.visible=false;setCapSprite(null);cap.hidden=true;vlog('calibration saved',S.vfov);
+  if(!quiet){const t=T('calDone',{n:S.vfov});speak(t,true);say(t,5000);}}
+function vfovUI(){const r=$('vfov');if(!r)return;r.value=S.vfov;$('vfovOut').textContent=S.vfov+'°';}
+$('vfov').oninput=e=>{S.vfov=+e.target.value;save();vfovUI();if(stereo)setBaseFov(S.vfov);};$('calBtn').onclick=calibStart;vfovUI();
 let tiltArmed=true,tiltT=0;const rvec=new THREE.Vector3();
 function headTilt(dt){if(frozen||!S.tilt||!motionOn||!devQ)return;rvec.set(1,0,0).applyQuaternion(camera.quaternion);const roll=rvec.y;if(!tiltArmed){if(Math.abs(roll)<0.2)tiltArmed=true;return;}
   if(Math.abs(roll)>0.42){tiltT+=dt;if(tiltT>0.6){tiltArmed=false;tiltT=0;roll<0?zoomIn():zoomOut();}}else tiltT=0;}
@@ -880,7 +900,7 @@ renderer.setAnimationLoop(frame);
 // start
 orientSky();updateTitle();applyLang();geoAuto();
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});
-window.__sky={vkPhrases:(l,a)=>vkPhrases(l,a),engine:()=>engine,pkey:w=>pkey(w),fuzzy:a=>{const f=fuzzyBest([a],cmdCands(),4),n=fuzzyBest([a],nameCands(),0);const d=x=>x&&{t:x.c.kind==='cmd'?x.c.target:(x.c.target.make()||{}).name,sc:+x.sc.toFixed(2),heard:x.heard,amb:x.amb&&(x.amb.c.kind==='cmd'?x.amb.c.target:(x.amb.c.target.make()||{}).name)};return {cmd:d(f),name:d(n)};},findName:a=>{const e=findName([a]);const it=e&&e.make();return it&&it.name;},isFrozen:()=>frozen,groundOn:()=>S.ground,pause:()=>{simAnchor=simNow();paused=true;},zoomIn,zoomOut,zoomReset,fieldReport,heard:(t)=>heard(t,true),PL,GAL,setSim,
+window.__sky={calib:()=>({calib,vfov:S.vfov,FOV0,fov:camera.fov}),calibStart:()=>calibStart(),vkPhrases:(l,a)=>vkPhrases(l,a),engine:()=>engine,pkey:w=>pkey(w),fuzzy:a=>{const f=fuzzyBest([a],cmdCands(),4),n=fuzzyBest([a],nameCands(),0);const d=x=>x&&{t:x.c.kind==='cmd'?x.c.target:(x.c.target.make()||{}).name,sc:+x.sc.toFixed(2),heard:x.heard,amb:x.amb&&(x.amb.c.kind==='cmd'?x.amb.c.target:(x.amb.c.target.make()||{}).name)};return {cmd:d(f),name:d(n)};},findName:a=>{const e=findName([a]);const it=e&&e.make();return it&&it.name;},isFrozen:()=>frozen,groundOn:()=>S.ground,pause:()=>{simAnchor=simNow();paused=true;},zoomIn,zoomOut,zoomReset,fieldReport,heard:(t)=>heard(t,true),PL,GAL,setSim,
   aimEq:(raDeg,dec)=>{qTrack.identity();trackEq=null;const w=eqv(raDeg,dec,1).applyMatrix4(sky.matrix).normalize();az=Math.atan2(w.x,-w.z);pitch=Math.asin(w.y);},
   aimBody:k=>{qTrack.identity();trackEq=null;const p=[...PL,...GAL].find(x=>x.k===k);if(!p||!p.v)return;const w=p.v.clone().applyMatrix4(sky.matrix).normalize();az=Math.atan2(w.x,-w.z);pitch=Math.asin(w.y);},
   setFovNow:f=>{fovGoal=f;camera.fov=f;camera.updateProjectionMatrix();},setLang:l=>{S.lang=l;applyLang();},altOf:v=>{const w=v.clone().applyMatrix4(sky.matrix);return Math.asin(w.y)/D2R;}};

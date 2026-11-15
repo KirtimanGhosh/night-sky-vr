@@ -114,7 +114,10 @@ body.stereo #divider{display:block}
   <div class="grp"><h3 data-i="grs">Great Red Spot longitude (System II)</h3>
    <div class="row"><input id="grsIn" type="text" inputmode="decimal" placeholder="auto: 91.0° on 1 Jun 2026, +1.75°/month"></div>
   </div>
-  <div class="grp"><h3 data-i="vr">Headset view</h3><div class="row"><label for="ipd"><span data-i="ipd">Lens distance</span> <input id="ipd" type="range" min="50" max="80" step="1"> <b id="ipdOut"></b></label></div></div>
+  <div class="grp"><h3 data-i="vr">Headset view</h3><div class="row"><label for="ipd"><span data-i="ipd">Lens distance</span> <input id="ipd" type="range" min="50" max="80" step="1"> <b id="ipdOut"></b></label></div>
+   <div class="row"><label for="vfov"><span>Field of view (true size)</span> <input id="vfov" type="range" min="40" max="120" step="1"> <b id="vfovOut"></b></label></div>
+   <div class="row"><button id="calBtn">Calibrate in headset</button></div>
+   <p class="tip">Matches the picture to your headset's lenses, so the Moon and everything else appear at their true size. In the headset, turn your head: if the green grid follows your head say "bigger" (or tilt right); if it rushes the other way say "smaller" (or tilt left); tap or say "done" when it stays still.</p></div>
   <div class="grp"><div class="row"><label for="dsoChk"><input id="dsoChk" type="checkbox"> <span data-i="dso">Nebula and galaxy photos</span></label></div></div>
   <div class="grp"><h3>Offline voice commands</h3>
    <p class="tip">Recognises voice commands on the phone itself, with no internet and no Google server. English and Hindi; Bengali and Odia still use online recognition.</p>
